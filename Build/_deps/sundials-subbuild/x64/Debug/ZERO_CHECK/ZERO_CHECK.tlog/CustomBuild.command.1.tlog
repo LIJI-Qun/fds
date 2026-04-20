@@ -1,0 +1,10 @@
+^E:\CODE\FDS\FDS\BUILD\_DEPS\SUNDIALS-SUBBUILD\CMAKEFILES\9C99984E44203D6B6082192B22B1077D\GENERATE.STAMP.RULE
+setlocal
+"C:\Program Files\CMake\bin\cmake.exe" -SE:/CODE/FDS/fds/Build/_deps/sundials-subbuild -BE:/CODE/FDS/fds/Build/_deps/sundials-subbuild --check-stamp-list CMakeFiles/generate.stamp.list --vs-solution-file E:/CODE/FDS/fds/Build/_deps/sundials-subbuild/sundials-populate.sln
+if %errorlevel% neq 0 goto :cmEnd
+:cmEnd
+endlocal & call :cmErrorLevel %errorlevel% & goto :cmDone
+:cmErrorLevel
+exit /b %1
+:cmDone
+if %errorlevel% neq 0 goto :VCEnd

@@ -1,0 +1,1062 @@
+
+---
+events:
+  -
+    kind: "message-v1"
+    backtrace:
+      - "C:/Program Files/CMake/share/cmake-4.0/Modules/CMakeDetermineSystem.cmake:205 (message)"
+      - "CMakeLists.txt:3 (project)"
+    message: |
+      The system is: Windows - 10.0.19045 - AMD64
+  -
+    kind: "message-v1"
+    backtrace:
+      - "C:/Program Files/CMake/share/cmake-4.0/Modules/CMakeDetermineCompilerId.cmake:17 (message)"
+      - "C:/Program Files/CMake/share/cmake-4.0/Modules/CMakeDetermineCompilerId.cmake:64 (__determine_compiler_id_test)"
+      - "C:/Program Files/CMake/share/cmake-4.0/Modules/CMakeDetermineFortranCompiler.cmake:190 (CMAKE_DETERMINE_COMPILER_ID)"
+      - "CMakeLists.txt:3 (project)"
+    message: |
+      Compiling the Fortran compiler identification source file "CMakeFortranCompilerId.F" succeeded.
+      Compiler: C:/Program Files (x86)/Intel/oneAPI/compiler/latest/bin/ifx.exe 
+      Build flags: /nologo;/fpp
+      Id flags:  
+      
+      The output was:
+      0
+      
+      Microsoft Visual Studio 2019 版本 16.11.40。
+      版权所有 (C) Microsoft Corp。保留所有权利。
+      已启动生成…
+      1>------ 已启动生成: 项目: CompilerIdFortran, 配置: Debug x64 ------
+      Compiling with Intel? Fortran Compiler Classic 2021.6.0 [Intel(R) 64]...
+      CMakeFortranCompilerId.F
+      Intel(R) Fortran Intel(R) 64 Compiler Classic for applications running on Intel(R) 64, Version 2021.6.0 Build 20220226_000000
+      Copyright (C) 1985-2022 Intel Corporation.  All rights reserved.
+      Linking...
+      Microsoft (R) Incremental Linker Version 14.29.30154.0
+      Copyright (C) Microsoft Corporation.  All rights reserved.
+      /OUT:.\\CompilerIdFortran.exe
+      /INCREMENTAL:NO
+      /MANIFEST
+      /MANIFESTFILE:Debug\\CompilerIdFortran.exe.intermediate.manifest
+      "/MANIFESTUAC:level='asInvoker' uiAccess='false'"
+      /DEBUG
+      /PDB:E:\\CODE\\FDS\\fds\\Build\\CMakeFiles\\4.0.1\\CompilerIdFortran\\CompilerIdFortran.pdb
+      /SUBSYSTEM:CONSOLE
+      /IMPLIB:E:\\CODE\\FDS\\fds\\Build\\CMakeFiles\\4.0.1\\CompilerIdFortran\\CompilerIdFortran.lib
+      Debug\\CMakeFortranCompilerId.obj
+      Embedding manifest...
+      Performing Post-Build Event...
+      CMAKE_Fortran_COMPILER=C:\\Program Files (x86)\\Intel\\oneAPI\\compiler\\2022.1.0\\windows\\bin\\intel64\\ifort.exe
+      
+      Build log written to  "file://E:/CODE/FDS/fds/Build/CMakeFiles/4.0.1/CompilerIdFortran/Debug/BuildLog.htm"
+      CompilerIdFortran - 0 error(s), 0 warning(s)
+      ========== 生成: 成功 1 个，失败 0 个，最新 0 个，跳过 0 个 ==========
+      
+      
+      Compilation of the Fortran compiler identification source "CMakeFortranCompilerId.F" produced "CompilerIdFortran.exe"
+      
+      Compilation of the Fortran compiler identification source "CMakeFortranCompilerId.F" produced "CompilerIdFortran.pdb"
+      
+      Compilation of the Fortran compiler identification source "CMakeFortranCompilerId.F" produced "CompilerIdFortran.u2d"
+      
+      Compilation of the Fortran compiler identification source "CMakeFortranCompilerId.F" produced "CompilerIdFortran.vfproj"
+      
+      The Fortran compiler identification is Intel, found in:
+        E:/CODE/FDS/fds/Build/CMakeFiles/4.0.1/CompilerIdFortran/CompilerIdFortran.exe
+      
+  -
+    kind: "try_compile-v1"
+    backtrace:
+      - "C:/Program Files/CMake/share/cmake-4.0/Modules/CMakeDetermineCompilerABI.cmake:83 (try_compile)"
+      - "C:/Program Files/CMake/share/cmake-4.0/Modules/CMakeTestFortranCompiler.cmake:20 (CMAKE_DETERMINE_COMPILER_ABI)"
+      - "CMakeLists.txt:3 (project)"
+    checks:
+      - "Detecting Fortran compiler ABI info"
+    directories:
+      source: "E:/CODE/FDS/fds/Build/CMakeFiles/CMakeScratch/TryCompile-uw0mkj"
+      binary: "E:/CODE/FDS/fds/Build/CMakeFiles/CMakeScratch/TryCompile-uw0mkj"
+    cmakeVariables:
+      CMAKE_EXE_LINKER_FLAGS: "/machine:x64"
+      CMAKE_Fortran_FLAGS: "/nologo /fpp"
+      CMAKE_Fortran_FLAGS_DEBUG: "/Od /debug:full"
+    buildResult:
+      variable: "CMAKE_Fortran_ABI_COMPILED"
+      cached: true
+      stdout: |
+        Change Dir: 'E:/CODE/FDS/fds/Build/CMakeFiles/CMakeScratch/TryCompile-uw0mkj'
+        
+        Run Build Command(s): "C:/Program Files (x86)/Microsoft Visual Studio/2019/Enterprise/Common7/IDE/devenv.com" CMAKE_TRY_COMPILE.sln /build Debug /project cmTC_f5b7a
+        
+        Microsoft Visual Studio 2019 版本 16.11.40。
+        版权所有 (C) Microsoft Corp。保留所有权利。
+        已启动生成…
+        1>------ 已启动生成: 项目: cmTC_f5b7a, 配置: Debug x64 ------
+        Compiling with Intel? Fortran Compiler Classic 2021.6.0 [Intel(R) 64]...
+        CMakeFortranCompilerABI.F90
+        Compiling manifest to resources...
+        Microsoft (R) Windows (R) Resource Compiler Version 10.0.10011.16384
+        Copyright (C) Microsoft Corporation.  All rights reserved.
+        Linking...
+        Microsoft (R) Incremental Linker Version 14.29.30154.0
+        Copyright (C) Microsoft Corporation.  All rights reserved.
+        /OUT:E:\\CODE\\FDS\\fds\\Build\\CMakeFiles\\CMakeScratch\\TryCompile-uw0mkj\\Debug\\cmTC_f5b7a.exe
+        /VERSION:0.0
+        /MANIFEST
+        /MANIFESTFILE:cmTC_f5b7a.dir\\Debug\\cmTC_f5b7a.exe.intermediate.manifest
+        "/MANIFESTUAC:level='asInvoker' uiAccess='false'"
+        /DEBUG
+        /PDB:E:\\CODE\\FDS\\fds\\Build\\CMakeFiles\\CMakeScratch\\TryCompile-uw0mkj\\Debug/cmTC_f5b7a.pdb
+        /SUBSYSTEM:CONSOLE
+        /IMPLIB:E:\\CODE\\FDS\\fds\\Build\\CMakeFiles\\CMakeScratch\\TryCompile-uw0mkj\\Debug\\cmTC_f5b7a.lib
+        /machine:x64
+        /debug
+        /INCREMENTAL
+        cmTC_f5b7a.dir\\Debug\\CMakeFortranCompilerABI.obj
+        cmTC_f5b7a.dir\\Debug\\cmTC_f5b7a.exe.embed.manifest.res
+        Embedding manifest...
+        Microsoft (R) Manifest Tool
+        Copyright (c) Microsoft Corporation.
+        All rights reserved.
+        
+        Build log written to  "file://E:/CODE/FDS/fds/Build/CMakeFiles/CMakeScratch/TryCompile-uw0mkj/cmTC_f5b7a.dir/Debug/BuildLog.htm"
+        cmTC_f5b7a - 0 error(s), 0 warning(s)
+        ========== 生成: 成功 1 个，失败 0 个，最新 0 个，跳过 0 个 ==========
+        
+      exitCode: 0
+  -
+    kind: "message-v1"
+    backtrace:
+      - "C:/Program Files/CMake/share/cmake-4.0/Modules/CMakeDetermineCompilerABI.cmake:227 (message)"
+      - "C:/Program Files/CMake/share/cmake-4.0/Modules/CMakeTestFortranCompiler.cmake:20 (CMAKE_DETERMINE_COMPILER_ABI)"
+      - "CMakeLists.txt:3 (project)"
+    message: |
+      Parsed Fortran implicit link information:
+        link line regex: [^( *|.*[/\\])(ld[0-9]*(|\\.[a-rt-z][a-z]*|\\.s[a-np-z][a-z]*|\\.so[a-z]+)|link\\.exe|lld-link(\\.exe)?|CMAKE_LINK_STARTFILE-NOTFOUND|([^/\\]+-)?ld|collect2)[^/\\]*( |$)]
+        linker tool regex: [^[ 	]*(->|")?[ 	]*(([^"]*[/\\])?(ld[0-9]*(|\\.[a-rt-z][a-z]*|\\.s[a-np-z][a-z]*|\\.so[a-z]+)|link\\.exe|lld-link(\\.exe)?))("|,| |$)]
+        implicit libs: []
+        implicit objs: []
+        implicit dirs: []
+        implicit fwks: []
+      
+      
+  -
+    kind: "try_compile-v1"
+    backtrace:
+      - "C:/Program Files/CMake/share/cmake-4.0/Modules/CMakeDetermineCompilerABI.cmake:236 (try_compile)"
+      - "C:/Program Files/CMake/share/cmake-4.0/Modules/CMakeTestFortranCompiler.cmake:20 (CMAKE_DETERMINE_COMPILER_ABI)"
+      - "CMakeLists.txt:3 (project)"
+    checks:
+      - "Determine Intel Fortran Compiler Implicit Link Path"
+    directories:
+      source: "C:/Program Files/CMake/share/cmake-4.0/Modules/IntelVSImplicitPath"
+      binary: "E:/CODE/FDS/fds/Build/CMakeFiles/IntelVSImplicitPath"
+    buildResult:
+      variable: "IFORT_LIB_PATH_COMPILED"
+      cached: true
+      stdout: |
+        Change Dir: 'E:/CODE/FDS/fds/Build/CMakeFiles/IntelVSImplicitPath'
+        
+        Run Build Command(s): "C:/Program Files (x86)/Microsoft Visual Studio/2019/Enterprise/Common7/IDE/devenv.com" IntelFortranImplicit.sln /build Debug /project ALL_BUILD
+        
+        Microsoft Visual Studio 2019 版本 16.11.40。
+        版权所有 (C) Microsoft Corp。保留所有权利。
+        已启动生成…
+        1>------ 已启动生成: 项目: ZERO_CHECK, 配置: Debug x64 ------
+        1>1>Checking Build System
+        2>------ 已启动生成: 项目: FortranLib, 配置: Debug x64 ------
+        Generating output.cmake
+        Compiling with Intel? Fortran Compiler Classic 2021.6.0 [Intel(R) 64]...
+        hello.f
+        Creating library...
+        
+        Build log written to  "file://E:/CODE/FDS/fds/Build/CMakeFiles/IntelVSImplicitPath/FortranLib.dir/Debug/BuildLog.htm"
+        FortranLib - 0 error(s), 0 warning(s)
+        3>------ 已启动生成: 项目: ALL_BUILD, 配置: Debug x64 ------
+        3>Building Custom Rule C:/Program Files/CMake/share/cmake-4.0/Modules/IntelVSImplicitPath/CMakeLists.txt
+        ========== 生成: 成功 3 个，失败 0 个，最新 0 个，跳过 0 个 ==========
+        
+      exitCode: 0
+  -
+    kind: "try_compile-v1"
+    backtrace:
+      - "C:/Program Files/CMake/share/cmake-4.0/Modules/FindMPI.cmake:1286 (try_compile)"
+      - "C:/Program Files/CMake/share/cmake-4.0/Modules/FindMPI.cmake:1305 (_MPI_try_staged_settings)"
+      - "C:/Program Files/CMake/share/cmake-4.0/Modules/FindMPI.cmake:1653 (_MPI_check_lang_works)"
+      - "CMakeLists.txt:92 (find_package)"
+    description: "The MPI test test_mpi for Fortran in mode F77_HEADER"
+    directories:
+      source: "E:/CODE/FDS/fds/Build/CMakeFiles/CMakeScratch/TryCompile-phabc3"
+      binary: "E:/CODE/FDS/fds/Build/CMakeFiles/CMakeScratch/TryCompile-phabc3"
+    cmakeVariables:
+      CMAKE_EXE_LINKER_FLAGS: "/machine:x64"
+      CMAKE_Fortran_FLAGS: "/nologo /fpp"
+      CMAKE_Fortran_FLAGS_DEBUG: "/Od /debug:full"
+    buildResult:
+      variable: "MPI_RESULT_Fortran_test_mpi_F77_HEADER"
+      cached: true
+      stdout: |
+        Change Dir: 'E:/CODE/FDS/fds/Build/CMakeFiles/CMakeScratch/TryCompile-phabc3'
+        
+        Run Build Command(s): "C:/Program Files (x86)/Microsoft Visual Studio/2019/Enterprise/Common7/IDE/devenv.com" CMAKE_TRY_COMPILE.sln /build Debug /project cmTC_8f43e
+        
+        Microsoft Visual Studio 2019 版本 16.11.40。
+        版权所有 (C) Microsoft Corp。保留所有权利。
+        已启动生成…
+        1>------ 已启动生成: 项目: cmTC_8f43e, 配置: Debug x64 ------
+        Compiling with Intel? Fortran Compiler Classic 2021.6.0 [Intel(R) 64]...
+        test_mpi.f90
+        Compiling manifest to resources...
+        Microsoft (R) Windows (R) Resource Compiler Version 10.0.10011.16384
+        Copyright (C) Microsoft Corporation.  All rights reserved.
+        Linking...
+        Microsoft (R) Incremental Linker Version 14.29.30154.0
+        Copyright (C) Microsoft Corporation.  All rights reserved.
+        /OUT:E:\\CODE\\FDS\\fds\\Build\\CMakeFiles\\CMakeScratch\\TryCompile-phabc3\\Debug\\cmTC_8f43e.exe
+        /VERSION:0.0
+        /MANIFEST
+        /MANIFESTFILE:cmTC_8f43e.dir\\Debug\\cmTC_8f43e.exe.intermediate.manifest
+        "/MANIFESTUAC:level='asInvoker' uiAccess='false'"
+        /DEBUG
+        /PDB:E:\\CODE\\FDS\\fds\\Build\\CMakeFiles\\CMakeScratch\\TryCompile-phabc3\\Debug/cmTC_8f43e.pdb
+        /SUBSYSTEM:CONSOLE
+        /IMPLIB:E:\\CODE\\FDS\\fds\\Build\\CMakeFiles\\CMakeScratch\\TryCompile-phabc3\\Debug\\cmTC_8f43e.lib
+        user32.lib
+        "C:\\Program Files (x86)\\Intel\\oneAPI\\mpi\\2021.16\\lib\\impi.lib"
+        /machine:x64
+        /debug
+        /INCREMENTAL
+        cmTC_8f43e.dir\\Debug\\test_mpi.obj
+        cmTC_8f43e.dir\\Debug\\cmTC_8f43e.exe.embed.manifest.res
+        Embedding manifest...
+        Microsoft (R) Manifest Tool
+        Copyright (c) Microsoft Corporation.
+        All rights reserved.
+        
+        Build log written to  "file://E:/CODE/FDS/fds/Build/CMakeFiles/CMakeScratch/TryCompile-phabc3/cmTC_8f43e.dir/Debug/BuildLog.htm"
+        cmTC_8f43e - 0 error(s), 0 warning(s)
+        ========== 生成: 成功 1 个，失败 0 个，最新 0 个，跳过 0 个 ==========
+        
+      exitCode: 0
+  -
+    kind: "try_compile-v1"
+    backtrace:
+      - "C:/Program Files/CMake/share/cmake-4.0/Modules/FindMPI.cmake:1286 (try_compile)"
+      - "C:/Program Files/CMake/share/cmake-4.0/Modules/FindMPI.cmake:1306 (_MPI_try_staged_settings)"
+      - "C:/Program Files/CMake/share/cmake-4.0/Modules/FindMPI.cmake:1653 (_MPI_check_lang_works)"
+      - "CMakeLists.txt:92 (find_package)"
+    description: "The MPI test test_mpi for Fortran in mode F90_MODULE"
+    directories:
+      source: "E:/CODE/FDS/fds/Build/CMakeFiles/CMakeScratch/TryCompile-clkzxl"
+      binary: "E:/CODE/FDS/fds/Build/CMakeFiles/CMakeScratch/TryCompile-clkzxl"
+    cmakeVariables:
+      CMAKE_EXE_LINKER_FLAGS: "/machine:x64"
+      CMAKE_Fortran_FLAGS: "/nologo /fpp"
+      CMAKE_Fortran_FLAGS_DEBUG: "/Od /debug:full"
+    buildResult:
+      variable: "MPI_RESULT_Fortran_test_mpi_F90_MODULE"
+      cached: true
+      stdout: |
+        Change Dir: 'E:/CODE/FDS/fds/Build/CMakeFiles/CMakeScratch/TryCompile-clkzxl'
+        
+        Run Build Command(s): "C:/Program Files (x86)/Microsoft Visual Studio/2019/Enterprise/Common7/IDE/devenv.com" CMAKE_TRY_COMPILE.sln /build Debug /project cmTC_32e41
+        
+        Microsoft Visual Studio 2019 版本 16.11.40。
+        版权所有 (C) Microsoft Corp。保留所有权利。
+        已启动生成…
+        1>------ 已启动生成: 项目: cmTC_32e41, 配置: Debug x64 ------
+        Compiling with Intel? Fortran Compiler Classic 2021.6.0 [Intel(R) 64]...
+        test_mpi.f90
+        E:\\CODE\\FDS\\fds\\Build\\CMakeFiles\\CMakeScratch\\TryCompile-clkzxl\\test_mpi.f90(2): error #7012: The module file cannot be read.  Its format requires a more recent F90 compiler.   [MPI]
+        E:\\CODE\\FDS\\fds\\Build\\CMakeFiles\\CMakeScratch\\TryCompile-clkzxl\\test_mpi.f90(4): error #6683: A kind type parameter must be a compile-time constant.   [MPI_INTEGER_KIND]
+        compilation aborted for E:\\CODE\\FDS\\fds\\Build\\CMakeFiles\\CMakeScratch\\TryCompile-clkzxl\\test_mpi.f90 (code 1)
+        
+        Build log written to  "file://E:/CODE/FDS/fds/Build/CMakeFiles/CMakeScratch/TryCompile-clkzxl/cmTC_32e41.dir/Debug/BuildLog.htm"
+        cmTC_32e41 - 3 error(s), 0 warning(s)
+        ========== 生成: 成功 0 个，失败 1 个，最新 0 个，跳过 0 个 ==========
+        
+      exitCode: 1
+  -
+    kind: "try_compile-v1"
+    backtrace:
+      - "C:/Program Files/CMake/share/cmake-4.0/Modules/FindMPI.cmake:1286 (try_compile)"
+      - "C:/Program Files/CMake/share/cmake-4.0/Modules/FindMPI.cmake:1307 (_MPI_try_staged_settings)"
+      - "C:/Program Files/CMake/share/cmake-4.0/Modules/FindMPI.cmake:1653 (_MPI_check_lang_works)"
+      - "CMakeLists.txt:92 (find_package)"
+    description: "The MPI test test_mpi for Fortran in mode F08_MODULE"
+    directories:
+      source: "E:/CODE/FDS/fds/Build/CMakeFiles/CMakeScratch/TryCompile-dnlk5a"
+      binary: "E:/CODE/FDS/fds/Build/CMakeFiles/CMakeScratch/TryCompile-dnlk5a"
+    cmakeVariables:
+      CMAKE_EXE_LINKER_FLAGS: "/machine:x64"
+      CMAKE_Fortran_FLAGS: "/nologo /fpp"
+      CMAKE_Fortran_FLAGS_DEBUG: "/Od /debug:full"
+    buildResult:
+      variable: "MPI_RESULT_Fortran_test_mpi_F08_MODULE"
+      cached: true
+      stdout: |
+        Change Dir: 'E:/CODE/FDS/fds/Build/CMakeFiles/CMakeScratch/TryCompile-dnlk5a'
+        
+        Run Build Command(s): "C:/Program Files (x86)/Microsoft Visual Studio/2019/Enterprise/Common7/IDE/devenv.com" CMAKE_TRY_COMPILE.sln /build Debug /project cmTC_f618c
+        
+        Microsoft Visual Studio 2019 版本 16.11.40。
+        版权所有 (C) Microsoft Corp。保留所有权利。
+        已启动生成…
+        1>------ 已启动生成: 项目: cmTC_f618c, 配置: Debug x64 ------
+        Compiling with Intel? Fortran Compiler Classic 2021.6.0 [Intel(R) 64]...
+        test_mpi.f90
+        E:\\CODE\\FDS\\fds\\Build\\CMakeFiles\\CMakeScratch\\TryCompile-dnlk5a\\test_mpi.f90(2): error #7012: The module file cannot be read.  Its format requires a more recent F90 compiler.   [MPI_F08]
+        E:\\CODE\\FDS\\fds\\Build\\CMakeFiles\\CMakeScratch\\TryCompile-dnlk5a\\test_mpi.f90(4): error #6683: A kind type parameter must be a compile-time constant.   [MPI_INTEGER_KIND]
+        compilation aborted for E:\\CODE\\FDS\\fds\\Build\\CMakeFiles\\CMakeScratch\\TryCompile-dnlk5a\\test_mpi.f90 (code 1)
+        
+        Build log written to  "file://E:/CODE/FDS/fds/Build/CMakeFiles/CMakeScratch/TryCompile-dnlk5a/cmTC_f618c.dir/Debug/BuildLog.htm"
+        cmTC_f618c - 3 error(s), 0 warning(s)
+        ========== 生成: 成功 0 个，失败 1 个，最新 0 个，跳过 0 个 ==========
+        
+      exitCode: 1
+  -
+    kind: "try_compile-v1"
+    backtrace:
+      - "C:/Program Files/CMake/share/cmake-4.0/Modules/FindMPI.cmake:1286 (try_compile)"
+      - "C:/Program Files/CMake/share/cmake-4.0/Modules/FindMPI.cmake:1715 (_MPI_try_staged_settings)"
+      - "CMakeLists.txt:92 (find_package)"
+    description: "The MPI test mpiver for Fortran in mode F77_HEADER"
+    directories:
+      source: "E:/CODE/FDS/fds/Build/CMakeFiles/CMakeScratch/TryCompile-xy6p9m"
+      binary: "E:/CODE/FDS/fds/Build/CMakeFiles/CMakeScratch/TryCompile-xy6p9m"
+    cmakeVariables:
+      CMAKE_EXE_LINKER_FLAGS: "/machine:x64"
+      CMAKE_Fortran_FLAGS: "/nologo /fpp"
+      CMAKE_Fortran_FLAGS_DEBUG: "/Od /debug:full"
+    buildResult:
+      variable: "MPI_RESULT_Fortran_mpiver_F77_HEADER"
+      cached: true
+      stdout: |
+        Change Dir: 'E:/CODE/FDS/fds/Build/CMakeFiles/CMakeScratch/TryCompile-xy6p9m'
+        
+        Run Build Command(s): "C:/Program Files (x86)/Microsoft Visual Studio/2019/Enterprise/Common7/IDE/devenv.com" CMAKE_TRY_COMPILE.sln /build Debug /project cmTC_f1a45
+        
+        Microsoft Visual Studio 2019 版本 16.11.40。
+        版权所有 (C) Microsoft Corp。保留所有权利。
+        已启动生成…
+        1>------ 已启动生成: 项目: cmTC_f1a45, 配置: Debug x64 ------
+        Compiling with Intel? Fortran Compiler Classic 2021.6.0 [Intel(R) 64]...
+        mpiver.f90
+        Compiling manifest to resources...
+        Microsoft (R) Windows (R) Resource Compiler Version 10.0.10011.16384
+        Copyright (C) Microsoft Corporation.  All rights reserved.
+        Linking...
+        Microsoft (R) Incremental Linker Version 14.29.30154.0
+        Copyright (C) Microsoft Corporation.  All rights reserved.
+        /OUT:E:\\CODE\\FDS\\fds\\Build\\CMakeFiles\\CMakeScratch\\TryCompile-xy6p9m\\Debug\\cmTC_f1a45.exe
+        /VERSION:0.0
+        /MANIFEST
+        /MANIFESTFILE:cmTC_f1a45.dir\\Debug\\cmTC_f1a45.exe.intermediate.manifest
+        "/MANIFESTUAC:level='asInvoker' uiAccess='false'"
+        /DEBUG
+        /PDB:E:\\CODE\\FDS\\fds\\Build\\CMakeFiles\\CMakeScratch\\TryCompile-xy6p9m\\Debug/cmTC_f1a45.pdb
+        /SUBSYSTEM:CONSOLE
+        /IMPLIB:E:\\CODE\\FDS\\fds\\Build\\CMakeFiles\\CMakeScratch\\TryCompile-xy6p9m\\Debug\\cmTC_f1a45.lib
+        user32.lib
+        "C:\\Program Files (x86)\\Intel\\oneAPI\\mpi\\2021.16\\lib\\impi.lib"
+        /machine:x64
+        /debug
+        /INCREMENTAL
+        cmTC_f1a45.dir\\Debug\\mpiver.obj
+        cmTC_f1a45.dir\\Debug\\cmTC_f1a45.exe.embed.manifest.res
+        Embedding manifest...
+        Microsoft (R) Manifest Tool
+        Copyright (c) Microsoft Corporation.
+        All rights reserved.
+        
+        Build log written to  "file://E:/CODE/FDS/fds/Build/CMakeFiles/CMakeScratch/TryCompile-xy6p9m/cmTC_f1a45.dir/Debug/BuildLog.htm"
+        cmTC_f1a45 - 0 error(s), 0 warning(s)
+        ========== 生成: 成功 1 个，失败 0 个，最新 0 个，跳过 0 个 ==========
+        
+      exitCode: 0
+  -
+    kind: "try_compile-v1"
+    backtrace:
+      - "C:/Program Files/CMake/share/cmake-4.0/Modules/FindOpenMP.cmake:250 (try_compile)"
+      - "C:/Program Files/CMake/share/cmake-4.0/Modules/FindOpenMP.cmake:576 (_OPENMP_GET_FLAGS)"
+      - "CMakeLists.txt:115 (find_package)"
+    description: "Detecting Fortran OpenMP compiler info"
+    directories:
+      source: "E:/CODE/FDS/fds/Build/CMakeFiles/CMakeScratch/TryCompile-uetfdi"
+      binary: "E:/CODE/FDS/fds/Build/CMakeFiles/CMakeScratch/TryCompile-uetfdi"
+    cmakeVariables:
+      CMAKE_EXE_LINKER_FLAGS: "/machine:x64"
+      CMAKE_Fortran_FLAGS: "/nologo /fpp"
+      CMAKE_Fortran_FLAGS_DEBUG: "/Od /debug:full"
+    buildResult:
+      variable: "OpenMP_COMPILE_RESULT_FortranHeader_Qopenmp"
+      cached: true
+      stdout: |
+        Change Dir: 'E:/CODE/FDS/fds/Build/CMakeFiles/CMakeScratch/TryCompile-uetfdi'
+        
+        Run Build Command(s): "C:/Program Files (x86)/Microsoft Visual Studio/2019/Enterprise/Common7/IDE/devenv.com" CMAKE_TRY_COMPILE.sln /build Debug /project cmTC_790af
+        
+        Microsoft Visual Studio 2019 版本 16.11.40。
+        版权所有 (C) Microsoft Corp。保留所有权利。
+        已启动生成…
+        1>------ 已启动生成: 项目: cmTC_790af, 配置: Debug x64 ------
+        Compiling with Intel? Fortran Compiler Classic 2021.6.0 [Intel(R) 64]...
+        OpenMPTryFlag.F90
+        Compiling manifest to resources...
+        Microsoft (R) Windows (R) Resource Compiler Version 10.0.10011.16384
+        Copyright (C) Microsoft Corporation.  All rights reserved.
+        Linking...
+        Microsoft (R) Incremental Linker Version 14.29.30154.0
+        Copyright (C) Microsoft Corporation.  All rights reserved.
+        /OUT:E:\\CODE\\FDS\\fds\\Build\\CMakeFiles\\CMakeScratch\\TryCompile-uetfdi\\Debug\\cmTC_790af.exe
+        /VERSION:0.0
+        /MANIFEST
+        /MANIFESTFILE:cmTC_790af.dir\\Debug\\cmTC_790af.exe.intermediate.manifest
+        "/MANIFESTUAC:level='asInvoker' uiAccess='false'"
+        /DEBUG
+        /PDB:E:\\CODE\\FDS\\fds\\Build\\CMakeFiles\\CMakeScratch\\TryCompile-uetfdi\\Debug/cmTC_790af.pdb
+        /SUBSYSTEM:CONSOLE
+        /IMPLIB:E:\\CODE\\FDS\\fds\\Build\\CMakeFiles\\CMakeScratch\\TryCompile-uetfdi\\Debug\\cmTC_790af.lib
+        user32.lib
+        /machine:x64
+        /debug
+        /INCREMENTAL
+        cmTC_790af.dir\\Debug\\OpenMPTryFlag.obj
+        cmTC_790af.dir\\Debug\\cmTC_790af.exe.embed.manifest.res
+        Embedding manifest...
+        Microsoft (R) Manifest Tool
+        Copyright (c) Microsoft Corporation.
+        All rights reserved.
+        
+        Build log written to  "file://E:/CODE/FDS/fds/Build/CMakeFiles/CMakeScratch/TryCompile-uetfdi/cmTC_790af.dir/Debug/BuildLog.htm"
+        cmTC_790af - 0 error(s), 0 warning(s)
+        ========== 生成: 成功 1 个，失败 0 个，最新 0 个，跳过 0 个 ==========
+        
+      exitCode: 0
+  -
+    kind: "try_compile-v1"
+    backtrace:
+      - "C:/Program Files/CMake/share/cmake-4.0/Modules/FindOpenMP.cmake:250 (try_compile)"
+      - "C:/Program Files/CMake/share/cmake-4.0/Modules/FindOpenMP.cmake:596 (_OPENMP_GET_FLAGS)"
+      - "CMakeLists.txt:115 (find_package)"
+    description: "Detecting Fortran OpenMP compiler info"
+    directories:
+      source: "E:/CODE/FDS/fds/Build/CMakeFiles/CMakeScratch/TryCompile-7tqv4s"
+      binary: "E:/CODE/FDS/fds/Build/CMakeFiles/CMakeScratch/TryCompile-7tqv4s"
+    cmakeVariables:
+      CMAKE_EXE_LINKER_FLAGS: "/machine:x64"
+      CMAKE_Fortran_FLAGS: "/nologo /fpp"
+      CMAKE_Fortran_FLAGS_DEBUG: "/Od /debug:full"
+    buildResult:
+      variable: "OpenMP_COMPILE_RESULT_FortranModule_Qopenmp"
+      cached: true
+      stdout: |
+        Change Dir: 'E:/CODE/FDS/fds/Build/CMakeFiles/CMakeScratch/TryCompile-7tqv4s'
+        
+        Run Build Command(s): "C:/Program Files (x86)/Microsoft Visual Studio/2019/Enterprise/Common7/IDE/devenv.com" CMAKE_TRY_COMPILE.sln /build Debug /project cmTC_268b0
+        
+        Microsoft Visual Studio 2019 版本 16.11.40。
+        版权所有 (C) Microsoft Corp。保留所有权利。
+        已启动生成…
+        1>------ 已启动生成: 项目: cmTC_268b0, 配置: Debug x64 ------
+        Compiling with Intel? Fortran Compiler Classic 2021.6.0 [Intel(R) 64]...
+        OpenMPTryFlag.F90
+        Compiling manifest to resources...
+        Microsoft (R) Windows (R) Resource Compiler Version 10.0.10011.16384
+        Copyright (C) Microsoft Corporation.  All rights reserved.
+        Linking...
+        Microsoft (R) Incremental Linker Version 14.29.30154.0
+        Copyright (C) Microsoft Corporation.  All rights reserved.
+        /OUT:E:\\CODE\\FDS\\fds\\Build\\CMakeFiles\\CMakeScratch\\TryCompile-7tqv4s\\Debug\\cmTC_268b0.exe
+        /VERSION:0.0
+        /MANIFEST
+        /MANIFESTFILE:cmTC_268b0.dir\\Debug\\cmTC_268b0.exe.intermediate.manifest
+        "/MANIFESTUAC:level='asInvoker' uiAccess='false'"
+        /DEBUG
+        /PDB:E:\\CODE\\FDS\\fds\\Build\\CMakeFiles\\CMakeScratch\\TryCompile-7tqv4s\\Debug/cmTC_268b0.pdb
+        /SUBSYSTEM:CONSOLE
+        /IMPLIB:E:\\CODE\\FDS\\fds\\Build\\CMakeFiles\\CMakeScratch\\TryCompile-7tqv4s\\Debug\\cmTC_268b0.lib
+        user32.lib
+        /machine:x64
+        /debug
+        /INCREMENTAL
+        cmTC_268b0.dir\\Debug\\OpenMPTryFlag.obj
+        cmTC_268b0.dir\\Debug\\cmTC_268b0.exe.embed.manifest.res
+        Embedding manifest...
+        Microsoft (R) Manifest Tool
+        Copyright (c) Microsoft Corporation.
+        All rights reserved.
+        
+        Build log written to  "file://E:/CODE/FDS/fds/Build/CMakeFiles/CMakeScratch/TryCompile-7tqv4s/cmTC_268b0.dir/Debug/BuildLog.htm"
+        cmTC_268b0 - 0 error(s), 0 warning(s)
+        ========== 生成: 成功 1 个，失败 0 个，最新 0 个，跳过 0 个 ==========
+        
+      exitCode: 0
+...
+
+---
+events:
+  -
+    kind: "try_compile-v1"
+    backtrace:
+      - "C:/Program Files/CMake/share/cmake-4.0/Modules/FindMPI.cmake:1286 (try_compile)"
+      - "C:/Program Files/CMake/share/cmake-4.0/Modules/FindMPI.cmake:1305 (_MPI_try_staged_settings)"
+      - "C:/Program Files/CMake/share/cmake-4.0/Modules/FindMPI.cmake:1653 (_MPI_check_lang_works)"
+      - "CMakeLists.txt:92 (find_package)"
+    description: "The MPI test test_mpi for Fortran in mode F77_HEADER"
+    directories:
+      source: "E:/CODE/FDS/fds/Build/CMakeFiles/CMakeScratch/TryCompile-vbsqsg"
+      binary: "E:/CODE/FDS/fds/Build/CMakeFiles/CMakeScratch/TryCompile-vbsqsg"
+    cmakeVariables:
+      CMAKE_EXE_LINKER_FLAGS: "/machine:x64"
+      CMAKE_Fortran_FLAGS: "/nologo /fpp"
+      CMAKE_Fortran_FLAGS_DEBUG: "/Od /debug:full"
+    buildResult:
+      variable: "MPI_RESULT_Fortran_test_mpi_F77_HEADER"
+      cached: true
+      stdout: |
+        Change Dir: 'E:/CODE/FDS/fds/Build/CMakeFiles/CMakeScratch/TryCompile-vbsqsg'
+        
+        Run Build Command(s): "C:/Program Files (x86)/Microsoft Visual Studio/2019/Enterprise/Common7/IDE/devenv.com" CMAKE_TRY_COMPILE.sln /build Debug /project cmTC_b6ad6
+        
+        Microsoft Visual Studio 2019 版本 16.11.40。
+        版权所有 (C) Microsoft Corp。保留所有权利。
+        已启动生成…
+        1>------ 已启动生成: 项目: cmTC_b6ad6, 配置: Debug x64 ------
+        Compiling with Intel? Fortran Compiler Classic 2021.6.0 [Intel(R) 64]...
+        test_mpi.f90
+        Compiling manifest to resources...
+        Microsoft (R) Windows (R) Resource Compiler Version 10.0.10011.16384
+        Copyright (C) Microsoft Corporation.  All rights reserved.
+        Linking...
+        Microsoft (R) Incremental Linker Version 14.29.30154.0
+        Copyright (C) Microsoft Corporation.  All rights reserved.
+        /OUT:E:\\CODE\\FDS\\fds\\Build\\CMakeFiles\\CMakeScratch\\TryCompile-vbsqsg\\Debug\\cmTC_b6ad6.exe
+        /VERSION:0.0
+        /MANIFEST
+        /MANIFESTFILE:cmTC_b6ad6.dir\\Debug\\cmTC_b6ad6.exe.intermediate.manifest
+        "/MANIFESTUAC:level='asInvoker' uiAccess='false'"
+        /DEBUG
+        /PDB:E:\\CODE\\FDS\\fds\\Build\\CMakeFiles\\CMakeScratch\\TryCompile-vbsqsg\\Debug/cmTC_b6ad6.pdb
+        /SUBSYSTEM:CONSOLE
+        /IMPLIB:E:\\CODE\\FDS\\fds\\Build\\CMakeFiles\\CMakeScratch\\TryCompile-vbsqsg\\Debug\\cmTC_b6ad6.lib
+        user32.lib
+        "C:\\Program Files (x86)\\Intel\\oneAPI\\mpi\\2021.16\\lib\\impi.lib"
+        /machine:x64
+        /debug
+        /INCREMENTAL
+        cmTC_b6ad6.dir\\Debug\\test_mpi.obj
+        cmTC_b6ad6.dir\\Debug\\cmTC_b6ad6.exe.embed.manifest.res
+        Embedding manifest...
+        Microsoft (R) Manifest Tool
+        Copyright (c) Microsoft Corporation.
+        All rights reserved.
+        
+        Build log written to  "file://E:/CODE/FDS/fds/Build/CMakeFiles/CMakeScratch/TryCompile-vbsqsg/cmTC_b6ad6.dir/Debug/BuildLog.htm"
+        cmTC_b6ad6 - 0 error(s), 0 warning(s)
+        ========== 生成: 成功 1 个，失败 0 个，最新 0 个，跳过 0 个 ==========
+        
+      exitCode: 0
+  -
+    kind: "try_compile-v1"
+    backtrace:
+      - "C:/Program Files/CMake/share/cmake-4.0/Modules/FindMPI.cmake:1286 (try_compile)"
+      - "C:/Program Files/CMake/share/cmake-4.0/Modules/FindMPI.cmake:1306 (_MPI_try_staged_settings)"
+      - "C:/Program Files/CMake/share/cmake-4.0/Modules/FindMPI.cmake:1653 (_MPI_check_lang_works)"
+      - "CMakeLists.txt:92 (find_package)"
+    description: "The MPI test test_mpi for Fortran in mode F90_MODULE"
+    directories:
+      source: "E:/CODE/FDS/fds/Build/CMakeFiles/CMakeScratch/TryCompile-hhpe2p"
+      binary: "E:/CODE/FDS/fds/Build/CMakeFiles/CMakeScratch/TryCompile-hhpe2p"
+    cmakeVariables:
+      CMAKE_EXE_LINKER_FLAGS: "/machine:x64"
+      CMAKE_Fortran_FLAGS: "/nologo /fpp"
+      CMAKE_Fortran_FLAGS_DEBUG: "/Od /debug:full"
+    buildResult:
+      variable: "MPI_RESULT_Fortran_test_mpi_F90_MODULE"
+      cached: true
+      stdout: |
+        Change Dir: 'E:/CODE/FDS/fds/Build/CMakeFiles/CMakeScratch/TryCompile-hhpe2p'
+        
+        Run Build Command(s): "C:/Program Files (x86)/Microsoft Visual Studio/2019/Enterprise/Common7/IDE/devenv.com" CMAKE_TRY_COMPILE.sln /build Debug /project cmTC_dad31
+        
+        Microsoft Visual Studio 2019 版本 16.11.40。
+        版权所有 (C) Microsoft Corp。保留所有权利。
+        已启动生成…
+        1>------ 已启动生成: 项目: cmTC_dad31, 配置: Debug x64 ------
+        Compiling with Intel? Fortran Compiler Classic 2021.6.0 [Intel(R) 64]...
+        test_mpi.f90
+        E:\\CODE\\FDS\\fds\\Build\\CMakeFiles\\CMakeScratch\\TryCompile-hhpe2p\\test_mpi.f90(2): error #7012: The module file cannot be read.  Its format requires a more recent F90 compiler.   [MPI]
+        E:\\CODE\\FDS\\fds\\Build\\CMakeFiles\\CMakeScratch\\TryCompile-hhpe2p\\test_mpi.f90(4): error #6683: A kind type parameter must be a compile-time constant.   [MPI_INTEGER_KIND]
+        compilation aborted for E:\\CODE\\FDS\\fds\\Build\\CMakeFiles\\CMakeScratch\\TryCompile-hhpe2p\\test_mpi.f90 (code 1)
+        
+        Build log written to  "file://E:/CODE/FDS/fds/Build/CMakeFiles/CMakeScratch/TryCompile-hhpe2p/cmTC_dad31.dir/Debug/BuildLog.htm"
+        cmTC_dad31 - 3 error(s), 0 warning(s)
+        ========== 生成: 成功 0 个，失败 1 个，最新 0 个，跳过 0 个 ==========
+        
+      exitCode: 1
+  -
+    kind: "try_compile-v1"
+    backtrace:
+      - "C:/Program Files/CMake/share/cmake-4.0/Modules/FindMPI.cmake:1286 (try_compile)"
+      - "C:/Program Files/CMake/share/cmake-4.0/Modules/FindMPI.cmake:1307 (_MPI_try_staged_settings)"
+      - "C:/Program Files/CMake/share/cmake-4.0/Modules/FindMPI.cmake:1653 (_MPI_check_lang_works)"
+      - "CMakeLists.txt:92 (find_package)"
+    description: "The MPI test test_mpi for Fortran in mode F08_MODULE"
+    directories:
+      source: "E:/CODE/FDS/fds/Build/CMakeFiles/CMakeScratch/TryCompile-j1n335"
+      binary: "E:/CODE/FDS/fds/Build/CMakeFiles/CMakeScratch/TryCompile-j1n335"
+    cmakeVariables:
+      CMAKE_EXE_LINKER_FLAGS: "/machine:x64"
+      CMAKE_Fortran_FLAGS: "/nologo /fpp"
+      CMAKE_Fortran_FLAGS_DEBUG: "/Od /debug:full"
+    buildResult:
+      variable: "MPI_RESULT_Fortran_test_mpi_F08_MODULE"
+      cached: true
+      stdout: |
+        Change Dir: 'E:/CODE/FDS/fds/Build/CMakeFiles/CMakeScratch/TryCompile-j1n335'
+        
+        Run Build Command(s): "C:/Program Files (x86)/Microsoft Visual Studio/2019/Enterprise/Common7/IDE/devenv.com" CMAKE_TRY_COMPILE.sln /build Debug /project cmTC_1a025
+        
+        Microsoft Visual Studio 2019 版本 16.11.40。
+        版权所有 (C) Microsoft Corp。保留所有权利。
+        已启动生成…
+        1>------ 已启动生成: 项目: cmTC_1a025, 配置: Debug x64 ------
+        Compiling with Intel? Fortran Compiler Classic 2021.6.0 [Intel(R) 64]...
+        test_mpi.f90
+        E:\\CODE\\FDS\\fds\\Build\\CMakeFiles\\CMakeScratch\\TryCompile-j1n335\\test_mpi.f90(2): error #7012: The module file cannot be read.  Its format requires a more recent F90 compiler.   [MPI_F08]
+        E:\\CODE\\FDS\\fds\\Build\\CMakeFiles\\CMakeScratch\\TryCompile-j1n335\\test_mpi.f90(4): error #6683: A kind type parameter must be a compile-time constant.   [MPI_INTEGER_KIND]
+        compilation aborted for E:\\CODE\\FDS\\fds\\Build\\CMakeFiles\\CMakeScratch\\TryCompile-j1n335\\test_mpi.f90 (code 1)
+        
+        Build log written to  "file://E:/CODE/FDS/fds/Build/CMakeFiles/CMakeScratch/TryCompile-j1n335/cmTC_1a025.dir/Debug/BuildLog.htm"
+        cmTC_1a025 - 3 error(s), 0 warning(s)
+        ========== 生成: 成功 0 个，失败 1 个，最新 0 个，跳过 0 个 ==========
+        
+      exitCode: 1
+  -
+    kind: "try_compile-v1"
+    backtrace:
+      - "C:/Program Files/CMake/share/cmake-4.0/Modules/FindMPI.cmake:1286 (try_compile)"
+      - "C:/Program Files/CMake/share/cmake-4.0/Modules/FindMPI.cmake:1715 (_MPI_try_staged_settings)"
+      - "CMakeLists.txt:92 (find_package)"
+    description: "The MPI test mpiver for Fortran in mode F77_HEADER"
+    directories:
+      source: "E:/CODE/FDS/fds/Build/CMakeFiles/CMakeScratch/TryCompile-z66npw"
+      binary: "E:/CODE/FDS/fds/Build/CMakeFiles/CMakeScratch/TryCompile-z66npw"
+    cmakeVariables:
+      CMAKE_EXE_LINKER_FLAGS: "/machine:x64"
+      CMAKE_Fortran_FLAGS: "/nologo /fpp"
+      CMAKE_Fortran_FLAGS_DEBUG: "/Od /debug:full"
+    buildResult:
+      variable: "MPI_RESULT_Fortran_mpiver_F77_HEADER"
+      cached: true
+      stdout: |
+        Change Dir: 'E:/CODE/FDS/fds/Build/CMakeFiles/CMakeScratch/TryCompile-z66npw'
+        
+        Run Build Command(s): "C:/Program Files (x86)/Microsoft Visual Studio/2019/Enterprise/Common7/IDE/devenv.com" CMAKE_TRY_COMPILE.sln /build Debug /project cmTC_796f1
+        
+        Microsoft Visual Studio 2019 版本 16.11.40。
+        版权所有 (C) Microsoft Corp。保留所有权利。
+        已启动生成…
+        1>------ 已启动生成: 项目: cmTC_796f1, 配置: Debug x64 ------
+        Compiling with Intel? Fortran Compiler Classic 2021.6.0 [Intel(R) 64]...
+        mpiver.f90
+        Compiling manifest to resources...
+        Microsoft (R) Windows (R) Resource Compiler Version 10.0.10011.16384
+        Copyright (C) Microsoft Corporation.  All rights reserved.
+        Linking...
+        Microsoft (R) Incremental Linker Version 14.29.30154.0
+        Copyright (C) Microsoft Corporation.  All rights reserved.
+        /OUT:E:\\CODE\\FDS\\fds\\Build\\CMakeFiles\\CMakeScratch\\TryCompile-z66npw\\Debug\\cmTC_796f1.exe
+        /VERSION:0.0
+        /MANIFEST
+        /MANIFESTFILE:cmTC_796f1.dir\\Debug\\cmTC_796f1.exe.intermediate.manifest
+        "/MANIFESTUAC:level='asInvoker' uiAccess='false'"
+        /DEBUG
+        /PDB:E:\\CODE\\FDS\\fds\\Build\\CMakeFiles\\CMakeScratch\\TryCompile-z66npw\\Debug/cmTC_796f1.pdb
+        /SUBSYSTEM:CONSOLE
+        /IMPLIB:E:\\CODE\\FDS\\fds\\Build\\CMakeFiles\\CMakeScratch\\TryCompile-z66npw\\Debug\\cmTC_796f1.lib
+        user32.lib
+        "C:\\Program Files (x86)\\Intel\\oneAPI\\mpi\\2021.16\\lib\\impi.lib"
+        /machine:x64
+        /debug
+        /INCREMENTAL
+        cmTC_796f1.dir\\Debug\\mpiver.obj
+        cmTC_796f1.dir\\Debug\\cmTC_796f1.exe.embed.manifest.res
+        Embedding manifest...
+        Microsoft (R) Manifest Tool
+        Copyright (c) Microsoft Corporation.
+        All rights reserved.
+        
+        Build log written to  "file://E:/CODE/FDS/fds/Build/CMakeFiles/CMakeScratch/TryCompile-z66npw/cmTC_796f1.dir/Debug/BuildLog.htm"
+        cmTC_796f1 - 0 error(s), 0 warning(s)
+        ========== 生成: 成功 1 个，失败 0 个，最新 0 个，跳过 0 个 ==========
+        
+      exitCode: 0
+  -
+    kind: "try_compile-v1"
+    backtrace:
+      - "C:/Program Files/CMake/share/cmake-4.0/Modules/FindOpenMP.cmake:250 (try_compile)"
+      - "C:/Program Files/CMake/share/cmake-4.0/Modules/FindOpenMP.cmake:576 (_OPENMP_GET_FLAGS)"
+      - "CMakeLists.txt:115 (find_package)"
+    description: "Detecting Fortran OpenMP compiler info"
+    directories:
+      source: "E:/CODE/FDS/fds/Build/CMakeFiles/CMakeScratch/TryCompile-v2t7to"
+      binary: "E:/CODE/FDS/fds/Build/CMakeFiles/CMakeScratch/TryCompile-v2t7to"
+    cmakeVariables:
+      CMAKE_EXE_LINKER_FLAGS: "/machine:x64"
+      CMAKE_Fortran_FLAGS: "/nologo /fpp"
+      CMAKE_Fortran_FLAGS_DEBUG: "/Od /debug:full"
+    buildResult:
+      variable: "OpenMP_COMPILE_RESULT_FortranHeader_Qopenmp"
+      cached: true
+      stdout: |
+        Change Dir: 'E:/CODE/FDS/fds/Build/CMakeFiles/CMakeScratch/TryCompile-v2t7to'
+        
+        Run Build Command(s): "C:/Program Files (x86)/Microsoft Visual Studio/2019/Enterprise/Common7/IDE/devenv.com" CMAKE_TRY_COMPILE.sln /build Debug /project cmTC_00685
+        
+        Microsoft Visual Studio 2019 版本 16.11.40。
+        版权所有 (C) Microsoft Corp。保留所有权利。
+        已启动生成…
+        1>------ 已启动生成: 项目: cmTC_00685, 配置: Debug x64 ------
+        Compiling with Intel? Fortran Compiler Classic 2021.6.0 [Intel(R) 64]...
+        OpenMPTryFlag.F90
+        Compiling manifest to resources...
+        Microsoft (R) Windows (R) Resource Compiler Version 10.0.10011.16384
+        Copyright (C) Microsoft Corporation.  All rights reserved.
+        Linking...
+        Microsoft (R) Incremental Linker Version 14.29.30154.0
+        Copyright (C) Microsoft Corporation.  All rights reserved.
+        /OUT:E:\\CODE\\FDS\\fds\\Build\\CMakeFiles\\CMakeScratch\\TryCompile-v2t7to\\Debug\\cmTC_00685.exe
+        /VERSION:0.0
+        /MANIFEST
+        /MANIFESTFILE:cmTC_00685.dir\\Debug\\cmTC_00685.exe.intermediate.manifest
+        "/MANIFESTUAC:level='asInvoker' uiAccess='false'"
+        /DEBUG
+        /PDB:E:\\CODE\\FDS\\fds\\Build\\CMakeFiles\\CMakeScratch\\TryCompile-v2t7to\\Debug/cmTC_00685.pdb
+        /SUBSYSTEM:CONSOLE
+        /IMPLIB:E:\\CODE\\FDS\\fds\\Build\\CMakeFiles\\CMakeScratch\\TryCompile-v2t7to\\Debug\\cmTC_00685.lib
+        user32.lib
+        /machine:x64
+        /debug
+        /INCREMENTAL
+        cmTC_00685.dir\\Debug\\OpenMPTryFlag.obj
+        cmTC_00685.dir\\Debug\\cmTC_00685.exe.embed.manifest.res
+        Embedding manifest...
+        Microsoft (R) Manifest Tool
+        Copyright (c) Microsoft Corporation.
+        All rights reserved.
+        
+        Build log written to  "file://E:/CODE/FDS/fds/Build/CMakeFiles/CMakeScratch/TryCompile-v2t7to/cmTC_00685.dir/Debug/BuildLog.htm"
+        cmTC_00685 - 0 error(s), 0 warning(s)
+        ========== 生成: 成功 1 个，失败 0 个，最新 0 个，跳过 0 个 ==========
+        
+      exitCode: 0
+  -
+    kind: "try_compile-v1"
+    backtrace:
+      - "C:/Program Files/CMake/share/cmake-4.0/Modules/FindOpenMP.cmake:250 (try_compile)"
+      - "C:/Program Files/CMake/share/cmake-4.0/Modules/FindOpenMP.cmake:596 (_OPENMP_GET_FLAGS)"
+      - "CMakeLists.txt:115 (find_package)"
+    description: "Detecting Fortran OpenMP compiler info"
+    directories:
+      source: "E:/CODE/FDS/fds/Build/CMakeFiles/CMakeScratch/TryCompile-jd2eyp"
+      binary: "E:/CODE/FDS/fds/Build/CMakeFiles/CMakeScratch/TryCompile-jd2eyp"
+    cmakeVariables:
+      CMAKE_EXE_LINKER_FLAGS: "/machine:x64"
+      CMAKE_Fortran_FLAGS: "/nologo /fpp"
+      CMAKE_Fortran_FLAGS_DEBUG: "/Od /debug:full"
+    buildResult:
+      variable: "OpenMP_COMPILE_RESULT_FortranModule_Qopenmp"
+      cached: true
+      stdout: |
+        Change Dir: 'E:/CODE/FDS/fds/Build/CMakeFiles/CMakeScratch/TryCompile-jd2eyp'
+        
+        Run Build Command(s): "C:/Program Files (x86)/Microsoft Visual Studio/2019/Enterprise/Common7/IDE/devenv.com" CMAKE_TRY_COMPILE.sln /build Debug /project cmTC_22faf
+        
+        Microsoft Visual Studio 2019 版本 16.11.40。
+        版权所有 (C) Microsoft Corp。保留所有权利。
+        已启动生成…
+        1>------ 已启动生成: 项目: cmTC_22faf, 配置: Debug x64 ------
+        Compiling with Intel? Fortran Compiler Classic 2021.6.0 [Intel(R) 64]...
+        OpenMPTryFlag.F90
+        Compiling manifest to resources...
+        Microsoft (R) Windows (R) Resource Compiler Version 10.0.10011.16384
+        Copyright (C) Microsoft Corporation.  All rights reserved.
+        Linking...
+        Microsoft (R) Incremental Linker Version 14.29.30154.0
+        Copyright (C) Microsoft Corporation.  All rights reserved.
+        /OUT:E:\\CODE\\FDS\\fds\\Build\\CMakeFiles\\CMakeScratch\\TryCompile-jd2eyp\\Debug\\cmTC_22faf.exe
+        /VERSION:0.0
+        /MANIFEST
+        /MANIFESTFILE:cmTC_22faf.dir\\Debug\\cmTC_22faf.exe.intermediate.manifest
+        "/MANIFESTUAC:level='asInvoker' uiAccess='false'"
+        /DEBUG
+        /PDB:E:\\CODE\\FDS\\fds\\Build\\CMakeFiles\\CMakeScratch\\TryCompile-jd2eyp\\Debug/cmTC_22faf.pdb
+        /SUBSYSTEM:CONSOLE
+        /IMPLIB:E:\\CODE\\FDS\\fds\\Build\\CMakeFiles\\CMakeScratch\\TryCompile-jd2eyp\\Debug\\cmTC_22faf.lib
+        user32.lib
+        /machine:x64
+        /debug
+        /INCREMENTAL
+        cmTC_22faf.dir\\Debug\\OpenMPTryFlag.obj
+        cmTC_22faf.dir\\Debug\\cmTC_22faf.exe.embed.manifest.res
+        Embedding manifest...
+        Microsoft (R) Manifest Tool
+        Copyright (c) Microsoft Corporation.
+        All rights reserved.
+        
+        Build log written to  "file://E:/CODE/FDS/fds/Build/CMakeFiles/CMakeScratch/TryCompile-jd2eyp/cmTC_22faf.dir/Debug/BuildLog.htm"
+        cmTC_22faf - 0 error(s), 0 warning(s)
+        ========== 生成: 成功 1 个，失败 0 个，最新 0 个，跳过 0 个 ==========
+        
+      exitCode: 0
+  -
+    kind: "message-v1"
+    backtrace:
+      - "C:/Program Files/CMake/share/cmake-4.0/Modules/CMakeDetermineCompilerId.cmake:17 (message)"
+      - "C:/Program Files/CMake/share/cmake-4.0/Modules/CMakeDetermineCompilerId.cmake:64 (__determine_compiler_id_test)"
+      - "C:/Program Files/CMake/share/cmake-4.0/Modules/CMakeDetermineCCompiler.cmake:123 (CMAKE_DETERMINE_COMPILER_ID)"
+      - "Build/_deps/hypre-src/src/CMakeLists.txt:40 (project)"
+    message: |
+      Compiling the C compiler identification source file "CMakeCCompilerId.c" succeeded.
+      Compiler:  
+      Build flags: 
+      Id flags:  
+      
+      The output was:
+      0
+      用于 .NET Framework 的 Microsoft (R) 生成引擎版本 16.11.2+f32259642
+      版权所有(C) Microsoft Corporation。保留所有权利。
+      
+      生成启动时间为 2025/08/20 15:47:14。
+      节点 1 上的项目“E:\\CODE\\FDS\\fds\\Build\\CMakeFiles\\4.0.1\\CompilerIdC\\CompilerIdC.vcxproj”(默认目标)。
+      PrepareForBuild:
+        正在创建目录“Debug\\”。
+        正在创建目录“Debug\\CompilerIdC.tlog\\”。
+      InitializeBuildStatus:
+        正在创建“Debug\\CompilerIdC.tlog\\unsuccessfulbuild”，因为已指定“AlwaysCreate”。
+      ClCompile:
+        C:\\Program Files (x86)\\Microsoft Visual Studio\\2019\\Enterprise\\VC\\Tools\\MSVC\\14.29.30133\\bin\\HostX64\\x64\\CL.exe /c /nologo /W0 /WX- /diagnostics:column /Od /D _MBCS /Gm- /EHsc /RTC1 /MDd /GS /Zc:wchar_t /Zc:forScope /Zc:inline /Fo"Debug\\\\" /Fd"Debug\\vc142.pdb" /external:W0 /Gd /TC /FC /errorReport:queue CMakeCCompilerId.c
+        CMakeCCompilerId.c
+      Link:
+        C:\\Program Files (x86)\\Microsoft Visual Studio\\2019\\Enterprise\\VC\\Tools\\MSVC\\14.29.30133\\bin\\HostX64\\x64\\link.exe /ERRORREPORT:QUEUE /OUT:".\\CompilerIdC.exe" /INCREMENTAL:NO /NOLOGO kernel32.lib user32.lib gdi32.lib winspool.lib comdlg32.lib advapi32.lib shell32.lib ole32.lib oleaut32.lib uuid.lib odbc32.lib odbccp32.lib /MANIFEST /MANIFESTUAC:"level='asInvoker' uiAccess='false'" /manifest:embed /PDB:".\\CompilerIdC.pdb" /SUBSYSTEM:CONSOLE /TLBID:1 /DYNAMICBASE /NXCOMPAT /IMPLIB:".\\CompilerIdC.lib" /MACHINE:X64 Debug\\CMakeCCompilerId.obj
+        CompilerIdC.vcxproj -> E:\\CODE\\FDS\\fds\\Build\\CMakeFiles\\4.0.1\\CompilerIdC\\CompilerIdC.exe
+      PostBuildEvent:
+        for %%i in (cl.exe) do @echo CMAKE_C_COMPILER=%%~$PATH:i
+        :VCEnd
+        CMAKE_C_COMPILER=C:\\Program Files (x86)\\Microsoft Visual Studio\\2019\\Enterprise\\VC\\Tools\\MSVC\\14.29.30133\\bin\\Hostx64\\x64\\cl.exe
+      FinalizeBuildStatus:
+        正在删除文件“Debug\\CompilerIdC.tlog\\unsuccessfulbuild”。
+        正在对“Debug\\CompilerIdC.tlog\\CompilerIdC.lastbuildstate”执行 Touch 任务。
+      已完成生成项目“E:\\CODE\\FDS\\fds\\Build\\CMakeFiles\\4.0.1\\CompilerIdC\\CompilerIdC.vcxproj”(默认目标)的操作。
+      
+      已成功生成。
+          0 个警告
+          0 个错误
+      
+      已用时间 00:00:02.93
+      
+      
+      Compilation of the C compiler identification source "CMakeCCompilerId.c" produced "CompilerIdC.exe"
+      
+      Compilation of the C compiler identification source "CMakeCCompilerId.c" produced "CompilerIdC.vcxproj"
+      
+      The C compiler identification is MSVC, found in:
+        E:/CODE/FDS/fds/Build/CMakeFiles/4.0.1/CompilerIdC/CompilerIdC.exe
+      
+  -
+    kind: "try_compile-v1"
+    backtrace:
+      - "C:/Program Files/CMake/share/cmake-4.0/Modules/CMakeDetermineCompilerABI.cmake:83 (try_compile)"
+      - "C:/Program Files/CMake/share/cmake-4.0/Modules/CMakeTestCCompiler.cmake:26 (CMAKE_DETERMINE_COMPILER_ABI)"
+      - "Build/_deps/hypre-src/src/CMakeLists.txt:40 (project)"
+    checks:
+      - "Detecting C compiler ABI info"
+    directories:
+      source: "E:/CODE/FDS/fds/Build/CMakeFiles/CMakeScratch/TryCompile-iozcnq"
+      binary: "E:/CODE/FDS/fds/Build/CMakeFiles/CMakeScratch/TryCompile-iozcnq"
+    cmakeVariables:
+      CMAKE_C_FLAGS: "/DWIN32 /D_WINDOWS"
+      CMAKE_C_FLAGS_DEBUG: "/Zi /Ob0 /Od /RTC1"
+      CMAKE_EXE_LINKER_FLAGS: "/machine:x64"
+    buildResult:
+      variable: "CMAKE_C_ABI_COMPILED"
+      cached: true
+      stdout: |
+        Change Dir: 'E:/CODE/FDS/fds/Build/CMakeFiles/CMakeScratch/TryCompile-iozcnq'
+        
+        Run Build Command(s): "C:/Program Files (x86)/Microsoft Visual Studio/2019/Enterprise/MSBuild/Current/Bin/MSBuild.exe" cmTC_e71a6.vcxproj /p:Configuration=Debug /p:Platform=x64 /p:VisualStudioVersion=16.0 /v:n
+        用于 .NET Framework 的 Microsoft (R) 生成引擎版本 16.11.2+f32259642
+        版权所有(C) Microsoft Corporation。保留所有权利。
+        
+        生成启动时间为 2025/08/20 15:47:20。
+        节点 1 上的项目“E:\\CODE\\FDS\\fds\\Build\\CMakeFiles\\CMakeScratch\\TryCompile-iozcnq\\cmTC_e71a6.vcxproj”(默认目标)。
+        PrepareForBuild:
+          正在创建目录“cmTC_e71a6.dir\\Debug\\”。
+          正在创建目录“E:\\CODE\\FDS\\fds\\Build\\CMakeFiles\\CMakeScratch\\TryCompile-iozcnq\\Debug\\”。
+          正在创建目录“cmTC_e71a6.dir\\Debug\\cmTC_e71a6.tlog\\”。
+        InitializeBuildStatus:
+          正在创建“cmTC_e71a6.dir\\Debug\\cmTC_e71a6.tlog\\unsuccessfulbuild”，因为已指定“AlwaysCreate”。
+        ClCompile:
+          C:\\Program Files (x86)\\Microsoft Visual Studio\\2019\\Enterprise\\VC\\Tools\\MSVC\\14.29.30133\\bin\\HostX64\\x64\\CL.exe /c /Zi /W1 /WX- /diagnostics:column /Od /Ob0 /D _MBCS /D WIN32 /D _WINDOWS /D "CMAKE_INTDIR=\\"Debug\\"" /RTC1 /MDd /GS /Zc:wchar_t /Zc:forScope /Zc:inline /Fo"cmTC_e71a6.dir\\Debug\\\\" /Fd"cmTC_e71a6.dir\\Debug\\vc142.pdb" /external:W1 /Gd /TC /errorReport:queue "C:\\Program Files\\CMake\\share\\cmake-4.0\\Modules\\CMakeCCompilerABI.c"
+          用于 x64 的 Microsoft (R) C/C++ 优化编译器 19.29.30154 版
+          版权所有(C) Microsoft Corporation。保留所有权利。
+          cl /c /Zi /W1 /WX- /diagnostics:column /Od /Ob0 /D _MBCS /D WIN32 /D _WINDOWS /D "CMAKE_INTDIR=\\"Debug\\"" /RTC1 /MDd /GS /Zc:wchar_t /Zc:forScope /Zc:inline /Fo"cmTC_e71a6.dir\\Debug\\\\" /Fd"cmTC_e71a6.dir\\Debug\\vc142.pdb" /external:W1 /Gd /TC /errorReport:queue "C:\\Program Files\\CMake\\share\\cmake-4.0\\Modules\\CMakeCCompilerABI.c"
+          CMakeCCompilerABI.c
+        Link:
+          C:\\Program Files (x86)\\Microsoft Visual Studio\\2019\\Enterprise\\VC\\Tools\\MSVC\\14.29.30133\\bin\\HostX64\\x64\\link.exe /ERRORREPORT:QUEUE /OUT:"E:\\CODE\\FDS\\fds\\Build\\CMakeFiles\\CMakeScratch\\TryCompile-iozcnq\\Debug\\cmTC_e71a6.exe" /INCREMENTAL /ILK:"cmTC_e71a6.dir\\Debug\\cmTC_e71a6.ilk" /NOLOGO kernel32.lib user32.lib gdi32.lib winspool.lib shell32.lib ole32.lib oleaut32.lib uuid.lib comdlg32.lib advapi32.lib /MANIFEST /MANIFESTUAC:"level='asInvoker' uiAccess='false'" /manifest:embed /DEBUG /PDB:"E:/CODE/FDS/fds/Build/CMakeFiles/CMakeScratch/TryCompile-iozcnq/Debug/cmTC_e71a6.pdb" /SUBSYSTEM:CONSOLE /TLBID:1 /DYNAMICBASE /NXCOMPAT /IMPLIB:"E:/CODE/FDS/fds/Build/CMakeFiles/CMakeScratch/TryCompile-iozcnq/Debug/cmTC_e71a6.lib" /MACHINE:X64  /machine:x64 cmTC_e71a6.dir\\Debug\\CMakeCCompilerABI.obj
+          cmTC_e71a6.vcxproj -> E:\\CODE\\FDS\\fds\\Build\\CMakeFiles\\CMakeScratch\\TryCompile-iozcnq\\Debug\\cmTC_e71a6.exe
+        FinalizeBuildStatus:
+          正在删除文件“cmTC_e71a6.dir\\Debug\\cmTC_e71a6.tlog\\unsuccessfulbuild”。
+          正在对“cmTC_e71a6.dir\\Debug\\cmTC_e71a6.tlog\\cmTC_e71a6.lastbuildstate”执行 Touch 任务。
+        已完成生成项目“E:\\CODE\\FDS\\fds\\Build\\CMakeFiles\\CMakeScratch\\TryCompile-iozcnq\\cmTC_e71a6.vcxproj”(默认目标)的操作。
+        
+        已成功生成。
+            0 个警告
+            0 个错误
+        
+        已用时间 00:00:01.99
+        
+      exitCode: 0
+  -
+    kind: "message-v1"
+    backtrace:
+      - "C:/Program Files/CMake/share/cmake-4.0/Modules/CMakeDetermineCompilerABI.cmake:227 (message)"
+      - "C:/Program Files/CMake/share/cmake-4.0/Modules/CMakeTestCCompiler.cmake:26 (CMAKE_DETERMINE_COMPILER_ABI)"
+      - "Build/_deps/hypre-src/src/CMakeLists.txt:40 (project)"
+    message: |
+      Parsed C implicit link information:
+        link line regex: [^( *|.*[/\\])(ld[0-9]*(|\\.[a-rt-z][a-z]*|\\.s[a-np-z][a-z]*|\\.so[a-z]+)|link\\.exe|lld-link(\\.exe)?|CMAKE_LINK_STARTFILE-NOTFOUND|([^/\\]+-)?ld|collect2)[^/\\]*( |$)]
+        linker tool regex: [^[ 	]*(->|")?[ 	]*(([^"]*[/\\])?(ld[0-9]*(|\\.[a-rt-z][a-z]*|\\.s[a-np-z][a-z]*|\\.so[a-z]+)|link\\.exe|lld-link(\\.exe)?))("|,| |$)]
+        linker tool for 'C': C:/Program Files (x86)/Microsoft Visual Studio/2019/Enterprise/VC/Tools/MSVC/14.29.30133/bin/HostX64/x64/link.exe
+        implicit libs: []
+        implicit objs: []
+        implicit dirs: []
+        implicit fwks: []
+      
+      
+  -
+    kind: "message-v1"
+    backtrace:
+      - "C:/Program Files/CMake/share/cmake-4.0/Modules/Internal/CMakeDetermineLinkerId.cmake:36 (message)"
+      - "C:/Program Files/CMake/share/cmake-4.0/Modules/CMakeDetermineCompilerABI.cmake:264 (cmake_determine_linker_id)"
+      - "C:/Program Files/CMake/share/cmake-4.0/Modules/CMakeTestCCompiler.cmake:26 (CMAKE_DETERMINE_COMPILER_ABI)"
+      - "Build/_deps/hypre-src/src/CMakeLists.txt:40 (project)"
+    message: |
+      Running the C compiler's linker: "C:/Program Files (x86)/Microsoft Visual Studio/2019/Enterprise/VC/Tools/MSVC/14.29.30133/bin/HostX64/x64/link.exe" "-v"
+      Microsoft (R) Incremental Linker Version 14.29.30154.0
+      Copyright (C) Microsoft Corporation.  All rights reserved.
+  -
+    kind: "try_compile-v1"
+    backtrace:
+      - "C:/Program Files/CMake/share/cmake-4.0/Modules/FindMPI.cmake:1286 (try_compile)"
+      - "C:/Program Files/CMake/share/cmake-4.0/Modules/FindMPI.cmake:1330 (_MPI_try_staged_settings)"
+      - "C:/Program Files/CMake/share/cmake-4.0/Modules/FindMPI.cmake:1653 (_MPI_check_lang_works)"
+      - "Build/_deps/hypre-src/src/config/cmake/HYPRE_CMakeUtilities.cmake:140 (find_package)"
+      - "Build/_deps/hypre-src/src/CMakeLists.txt:363 (configure_mpi_target)"
+    description: "The MPI test test_mpi for C in mode normal"
+    directories:
+      source: "E:/CODE/FDS/fds/Build/CMakeFiles/CMakeScratch/TryCompile-6vfzee"
+      binary: "E:/CODE/FDS/fds/Build/CMakeFiles/CMakeScratch/TryCompile-6vfzee"
+    cmakeVariables:
+      CMAKE_C_FLAGS: "/DWIN32 /D_WINDOWS"
+      CMAKE_C_FLAGS_DEBUG: "/Zi /Ob0 /Od /RTC1"
+      CMAKE_EXE_LINKER_FLAGS: "/machine:x64"
+      CMAKE_MODULE_PATH: "E:/CODE/FDS/fds/Build/_deps/hypre-src/src/config/cmake;"
+    buildResult:
+      variable: "MPI_RESULT_C_test_mpi_normal"
+      cached: true
+      stdout: |
+        Change Dir: 'E:/CODE/FDS/fds/Build/CMakeFiles/CMakeScratch/TryCompile-6vfzee'
+        
+        Run Build Command(s): "C:/Program Files (x86)/Microsoft Visual Studio/2019/Enterprise/MSBuild/Current/Bin/MSBuild.exe" cmTC_45300.vcxproj /p:Configuration=Debug /p:Platform=x64 /p:VisualStudioVersion=16.0 /v:n
+        用于 .NET Framework 的 Microsoft (R) 生成引擎版本 16.11.2+f32259642
+        版权所有(C) Microsoft Corporation。保留所有权利。
+        
+        生成启动时间为 2025/08/20 15:47:28。
+        节点 1 上的项目“E:\\CODE\\FDS\\fds\\Build\\CMakeFiles\\CMakeScratch\\TryCompile-6vfzee\\cmTC_45300.vcxproj”(默认目标)。
+        PrepareForBuild:
+          正在创建目录“cmTC_45300.dir\\Debug\\”。
+          正在创建目录“E:\\CODE\\FDS\\fds\\Build\\CMakeFiles\\CMakeScratch\\TryCompile-6vfzee\\Debug\\”。
+          正在创建目录“cmTC_45300.dir\\Debug\\cmTC_45300.tlog\\”。
+        InitializeBuildStatus:
+          正在创建“cmTC_45300.dir\\Debug\\cmTC_45300.tlog\\unsuccessfulbuild”，因为已指定“AlwaysCreate”。
+        ClCompile:
+          C:\\Program Files (x86)\\Microsoft Visual Studio\\2019\\Enterprise\\VC\\Tools\\MSVC\\14.29.30133\\bin\\HostX64\\x64\\CL.exe /c /Zi /W1 /WX- /diagnostics:column /Od /Ob0 /D _MBCS /D WIN32 /D _WINDOWS /D "CMAKE_INTDIR=\\"Debug\\"" /RTC1 /MDd /GS /Zc:wchar_t /Zc:forScope /Zc:inline /Fo"cmTC_45300.dir\\Debug\\\\" /Fd"cmTC_45300.dir\\Debug\\vc142.pdb" /external:W0 /Gd /TC /errorReport:queue  /external:I "C:/Program Files (x86)/Intel/oneAPI/mpi/2021.16/include" /external:I "C:/Program Files (x86)/Intel/oneAPI/mpi/2021.16/include/mpi" "E:\\CODE\\FDS\\fds\\Build\\CMakeFiles\\CMakeScratch\\TryCompile-6vfzee\\test_mpi.c"
+          用于 x64 的 Microsoft (R) C/C++ 优化编译器 19.29.30154 版
+          版权所有(C) Microsoft Corporation。保留所有权利。
+          cl /c /Zi /W1 /WX- /diagnostics:column /Od /Ob0 /D _MBCS /D WIN32 /D _WINDOWS /D "CMAKE_INTDIR=\\"Debug\\"" /RTC1 /MDd /GS /Zc:wchar_t /Zc:forScope /Zc:inline /Fo"cmTC_45300.dir\\Debug\\\\" /Fd"cmTC_45300.dir\\Debug\\vc142.pdb" /external:W0 /Gd /TC /errorReport:queue  /external:I "C:/Program Files (x86)/Intel/oneAPI/mpi/2021.16/include" /external:I "C:/Program Files (x86)/Intel/oneAPI/mpi/2021.16/include/mpi" "E:\\CODE\\FDS\\fds\\Build\\CMakeFiles\\CMakeScratch\\TryCompile-6vfzee\\test_mpi.c"
+          test_mpi.c
+        Link:
+          C:\\Program Files (x86)\\Microsoft Visual Studio\\2019\\Enterprise\\VC\\Tools\\MSVC\\14.29.30133\\bin\\HostX64\\x64\\link.exe /ERRORREPORT:QUEUE /OUT:"E:\\CODE\\FDS\\fds\\Build\\CMakeFiles\\CMakeScratch\\TryCompile-6vfzee\\Debug\\cmTC_45300.exe" /INCREMENTAL /ILK:"cmTC_45300.dir\\Debug\\cmTC_45300.ilk" /NOLOGO "C:\\Program Files (x86)\\Intel\\oneAPI\\mpi\\2021.16\\lib\\impi.lib" "C:\\Program Files (x86)\\Intel\\oneAPI\\mpi\\2021.16\\lib\\impicxx.lib" kernel32.lib user32.lib gdi32.lib winspool.lib shell32.lib ole32.lib oleaut32.lib uuid.lib comdlg32.lib advapi32.lib /MANIFEST /MANIFESTUAC:"level='asInvoker' uiAccess='false'" /manifest:embed /DEBUG /PDB:"E:/CODE/FDS/fds/Build/CMakeFiles/CMakeScratch/TryCompile-6vfzee/Debug/cmTC_45300.pdb" /SUBSYSTEM:CONSOLE /TLBID:1 /DYNAMICBASE /NXCOMPAT /IMPLIB:"E:/CODE/FDS/fds/Build/CMakeFiles/CMakeScratch/TryCompile-6vfzee/Debug/cmTC_45300.lib" /MACHINE:X64  /machine:x64 cmTC_45300.dir\\Debug\\test_mpi.obj
+          cmTC_45300.vcxproj -> E:\\CODE\\FDS\\fds\\Build\\CMakeFiles\\CMakeScratch\\TryCompile-6vfzee\\Debug\\cmTC_45300.exe
+        FinalizeBuildStatus:
+          正在删除文件“cmTC_45300.dir\\Debug\\cmTC_45300.tlog\\unsuccessfulbuild”。
+          正在对“cmTC_45300.dir\\Debug\\cmTC_45300.tlog\\cmTC_45300.lastbuildstate”执行 Touch 任务。
+        已完成生成项目“E:\\CODE\\FDS\\fds\\Build\\CMakeFiles\\CMakeScratch\\TryCompile-6vfzee\\cmTC_45300.vcxproj”(默认目标)的操作。
+        
+        已成功生成。
+            0 个警告
+            0 个错误
+        
+        已用时间 00:00:01.96
+        
+      exitCode: 0
+  -
+    kind: "try_compile-v1"
+    backtrace:
+      - "C:/Program Files/CMake/share/cmake-4.0/Modules/Internal/CheckSourceCompiles.cmake:104 (try_compile)"
+      - "C:/Program Files/CMake/share/cmake-4.0/Modules/CheckCSourceCompiles.cmake:58 (cmake_check_source_compiles)"
+      - "Build/_deps/hypre-src/src/config/cmake/HYPRE_CMakeUtilities.cmake:175 (check_c_source_compiles)"
+      - "Build/_deps/hypre-src/src/CMakeLists.txt:363 (configure_mpi_target)"
+    checks:
+      - "Performing Test HYPRE_HAVE_MPI_COMM_F2C"
+    directories:
+      source: "E:/CODE/FDS/fds/Build/CMakeFiles/CMakeScratch/TryCompile-b6dri9"
+      binary: "E:/CODE/FDS/fds/Build/CMakeFiles/CMakeScratch/TryCompile-b6dri9"
+    cmakeVariables:
+      CMAKE_C_FLAGS: "/DWIN32 /D_WINDOWS"
+      CMAKE_C_FLAGS_DEBUG: "/Zi /Ob0 /Od /RTC1"
+      CMAKE_EXE_LINKER_FLAGS: "/machine:x64"
+      CMAKE_MODULE_PATH: "E:/CODE/FDS/fds/Build/_deps/hypre-src/src/config/cmake;"
+    buildResult:
+      variable: "HYPRE_HAVE_MPI_COMM_F2C"
+      cached: true
+      stdout: |
+        Change Dir: 'E:/CODE/FDS/fds/Build/CMakeFiles/CMakeScratch/TryCompile-b6dri9'
+        
+        Run Build Command(s): "C:/Program Files (x86)/Microsoft Visual Studio/2019/Enterprise/MSBuild/Current/Bin/MSBuild.exe" cmTC_573d9.vcxproj /p:Configuration=Debug /p:Platform=x64 /p:VisualStudioVersion=16.0 /v:n
+        用于 .NET Framework 的 Microsoft (R) 生成引擎版本 16.11.2+f32259642
+        版权所有(C) Microsoft Corporation。保留所有权利。
+        
+        生成启动时间为 2025/08/20 15:47:31。
+        节点 1 上的项目“E:\\CODE\\FDS\\fds\\Build\\CMakeFiles\\CMakeScratch\\TryCompile-b6dri9\\cmTC_573d9.vcxproj”(默认目标)。
+        PrepareForBuild:
+          正在创建目录“cmTC_573d9.dir\\Debug\\”。
+          正在创建目录“E:\\CODE\\FDS\\fds\\Build\\CMakeFiles\\CMakeScratch\\TryCompile-b6dri9\\Debug\\”。
+          正在创建目录“cmTC_573d9.dir\\Debug\\cmTC_573d9.tlog\\”。
+        InitializeBuildStatus:
+          正在创建“cmTC_573d9.dir\\Debug\\cmTC_573d9.tlog\\unsuccessfulbuild”，因为已指定“AlwaysCreate”。
+        ClCompile:
+          C:\\Program Files (x86)\\Microsoft Visual Studio\\2019\\Enterprise\\VC\\Tools\\MSVC\\14.29.30133\\bin\\HostX64\\x64\\CL.exe /c /Zi /W1 /WX- /diagnostics:column /Od /Ob0 /D _MBCS /D WIN32 /D _WINDOWS /D HYPRE_HAVE_MPI_COMM_F2C /D "CMAKE_INTDIR=\\"Debug\\"" /RTC1 /MDd /GS /Zc:wchar_t /Zc:forScope /Zc:inline /Fo"cmTC_573d9.dir\\Debug\\\\" /Fd"cmTC_573d9.dir\\Debug\\vc142.pdb" /external:W0 /Gd /TC /errorReport:queue  /external:I "C:/Program Files (x86)/Intel/oneAPI/mpi/2021.16/include" /external:I "C:/Program Files (x86)/Intel/oneAPI/mpi/2021.16/include/mpi" "E:\\CODE\\FDS\\fds\\Build\\CMakeFiles\\CMakeScratch\\TryCompile-b6dri9\\src.c"
+          用于 x64 的 Microsoft (R) C/C++ 优化编译器 19.29.30154 版
+          版权所有(C) Microsoft Corporation。保留所有权利。
+          cl /c /Zi /W1 /WX- /diagnostics:column /Od /Ob0 /D _MBCS /D WIN32 /D _WINDOWS /D HYPRE_HAVE_MPI_COMM_F2C /D "CMAKE_INTDIR=\\"Debug\\"" /RTC1 /MDd /GS /Zc:wchar_t /Zc:forScope /Zc:inline /Fo"cmTC_573d9.dir\\Debug\\\\" /Fd"cmTC_573d9.dir\\Debug\\vc142.pdb" /external:W0 /Gd /TC /errorReport:queue  /external:I "C:/Program Files (x86)/Intel/oneAPI/mpi/2021.16/include" /external:I "C:/Program Files (x86)/Intel/oneAPI/mpi/2021.16/include/mpi" "E:\\CODE\\FDS\\fds\\Build\\CMakeFiles\\CMakeScratch\\TryCompile-b6dri9\\src.c"
+          src.c
+        Link:
+          C:\\Program Files (x86)\\Microsoft Visual Studio\\2019\\Enterprise\\VC\\Tools\\MSVC\\14.29.30133\\bin\\HostX64\\x64\\link.exe /ERRORREPORT:QUEUE /OUT:"E:\\CODE\\FDS\\fds\\Build\\CMakeFiles\\CMakeScratch\\TryCompile-b6dri9\\Debug\\cmTC_573d9.exe" /INCREMENTAL /ILK:"cmTC_573d9.dir\\Debug\\cmTC_573d9.ilk" /NOLOGO "C:\\Program Files (x86)\\Intel\\oneAPI\\mpi\\2021.16\\lib\\impi.lib" "C:\\Program Files (x86)\\Intel\\oneAPI\\mpi\\2021.16\\lib\\impicxx.lib" kernel32.lib user32.lib gdi32.lib winspool.lib shell32.lib ole32.lib oleaut32.lib uuid.lib comdlg32.lib advapi32.lib /MANIFEST /MANIFESTUAC:"level='asInvoker' uiAccess='false'" /manifest:embed /DEBUG /PDB:"E:/CODE/FDS/fds/Build/CMakeFiles/CMakeScratch/TryCompile-b6dri9/Debug/cmTC_573d9.pdb" /SUBSYSTEM:CONSOLE /TLBID:1 /DYNAMICBASE /NXCOMPAT /IMPLIB:"E:/CODE/FDS/fds/Build/CMakeFiles/CMakeScratch/TryCompile-b6dri9/Debug/cmTC_573d9.lib" /MACHINE:X64  /machine:x64 cmTC_573d9.dir\\Debug\\src.obj
+          cmTC_573d9.vcxproj -> E:\\CODE\\FDS\\fds\\Build\\CMakeFiles\\CMakeScratch\\TryCompile-b6dri9\\Debug\\cmTC_573d9.exe
+        FinalizeBuildStatus:
+          正在删除文件“cmTC_573d9.dir\\Debug\\cmTC_573d9.tlog\\unsuccessfulbuild”。
+          正在对“cmTC_573d9.dir\\Debug\\cmTC_573d9.tlog\\cmTC_573d9.lastbuildstate”执行 Touch 任务。
+        已完成生成项目“E:\\CODE\\FDS\\fds\\Build\\CMakeFiles\\CMakeScratch\\TryCompile-b6dri9\\cmTC_573d9.vcxproj”(默认目标)的操作。
+        
+        已成功生成。
+            0 个警告
+            0 个错误
+        
+        已用时间 00:00:01.87
+        
+      exitCode: 0
+...

@@ -1,0 +1,44 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<Project ToolsVersion="16.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <ItemGroup>
+    <CustomBuild Include="E:\CODE\FDS\fds\Build\_deps\sundials-subbuild\CMakeFiles\bf5d796c91e964fe7d3e33c92ff8977c\sundials-populate-mkdir.rule">
+      <Filter>CMake Rules</Filter>
+    </CustomBuild>
+    <CustomBuild Include="E:\CODE\FDS\fds\Build\_deps\sundials-subbuild\CMakeFiles\bf5d796c91e964fe7d3e33c92ff8977c\sundials-populate-download.rule">
+      <Filter>CMake Rules</Filter>
+    </CustomBuild>
+    <CustomBuild Include="E:\CODE\FDS\fds\Build\_deps\sundials-subbuild\CMakeFiles\bf5d796c91e964fe7d3e33c92ff8977c\sundials-populate-update.rule">
+      <Filter>CMake Rules</Filter>
+    </CustomBuild>
+    <CustomBuild Include="E:\CODE\FDS\fds\Build\_deps\sundials-subbuild\CMakeFiles\bf5d796c91e964fe7d3e33c92ff8977c\sundials-populate-patch.rule">
+      <Filter>CMake Rules</Filter>
+    </CustomBuild>
+    <CustomBuild Include="E:\CODE\FDS\fds\Build\_deps\sundials-subbuild\CMakeFiles\bf5d796c91e964fe7d3e33c92ff8977c\sundials-populate-configure.rule">
+      <Filter>CMake Rules</Filter>
+    </CustomBuild>
+    <CustomBuild Include="E:\CODE\FDS\fds\Build\_deps\sundials-subbuild\CMakeFiles\bf5d796c91e964fe7d3e33c92ff8977c\sundials-populate-build.rule">
+      <Filter>CMake Rules</Filter>
+    </CustomBuild>
+    <CustomBuild Include="E:\CODE\FDS\fds\Build\_deps\sundials-subbuild\CMakeFiles\bf5d796c91e964fe7d3e33c92ff8977c\sundials-populate-install.rule">
+      <Filter>CMake Rules</Filter>
+    </CustomBuild>
+    <CustomBuild Include="E:\CODE\FDS\fds\Build\_deps\sundials-subbuild\CMakeFiles\bf5d796c91e964fe7d3e33c92ff8977c\sundials-populate-test.rule">
+      <Filter>CMake Rules</Filter>
+    </CustomBuild>
+    <CustomBuild Include="E:\CODE\FDS\fds\Build\_deps\sundials-subbuild\CMakeFiles\43ec02bfa11c1c6081be222b599af103\sundials-populate-complete.rule">
+      <Filter>CMake Rules</Filter>
+    </CustomBuild>
+    <CustomBuild Include="E:\CODE\FDS\fds\Build\_deps\sundials-subbuild\CMakeFiles\9c99984e44203d6b6082192b22b1077d\sundials-populate.rule">
+      <Filter>CMake Rules</Filter>
+    </CustomBuild>
+    <CustomBuild Include="E:\CODE\FDS\fds\Build\_deps\sundials-subbuild\CMakeLists.txt" />
+  </ItemGroup>
+  <ItemGroup>
+    <None Include="E:\CODE\FDS\fds\Build\_deps\sundials-subbuild\CMakeFiles\sundials-populate" />
+  </ItemGroup>
+  <ItemGroup>
+    <Filter Include="CMake Rules">
+      <UniqueIdentifier>{E29D5ACC-1BC0-3905-B1D2-3848B5475ED0}</UniqueIdentifier>
+    </Filter>
+  </ItemGroup>
+</Project>

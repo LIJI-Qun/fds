@@ -1,0 +1,7 @@
+{
+	"InstallScripts" : 
+	[
+		"E:/CODE/FDS/fds/Build/_deps/sundials-subbuild/cmake_install.cmake"
+	],
+	"Parallel" : false
+}

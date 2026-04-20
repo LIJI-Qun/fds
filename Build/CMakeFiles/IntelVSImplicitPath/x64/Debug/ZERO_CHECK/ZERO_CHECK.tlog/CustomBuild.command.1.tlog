@@ -1,0 +1,10 @@
+^E:\CODE\FDS\FDS\BUILD\CMAKEFILES\INTELVSIMPLICITPATH\CMAKEFILES\84007C56012B04BF41492AD007D9A3F7\GENERATE.STAMP.RULE
+setlocal
+"C:\Program Files\CMake\bin\cmake.exe" "-SC:/Program Files/CMake/share/cmake-4.0/Modules/IntelVSImplicitPath" -BE:/CODE/FDS/fds/Build/CMakeFiles/IntelVSImplicitPath --check-stamp-list CMakeFiles/generate.stamp.list --vs-solution-file E:/CODE/FDS/fds/Build/CMakeFiles/IntelVSImplicitPath/IntelFortranImplicit.sln
+if %errorlevel% neq 0 goto :cmEnd
+:cmEnd
+endlocal & call :cmErrorLevel %errorlevel% & goto :cmDone
+:cmErrorLevel
+exit /b %1
+:cmDone
+if %errorlevel% neq 0 goto :VCEnd

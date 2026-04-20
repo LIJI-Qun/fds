@@ -1,0 +1,21 @@
+Change Dir: 'E:/CODE/FDS/fds/Build/CMakeFiles/IntelVSImplicitPath'
+
+Run Build Command(s): "C:/Program Files (x86)/Microsoft Visual Studio/2019/Enterprise/Common7/IDE/devenv.com" IntelFortranImplicit.sln /build Debug /project ALL_BUILD
+
+Microsoft Visual Studio 2019 版本 16.11.40。
+版权所有 (C) Microsoft Corp。保留所有权利。
+已启动生成…
+1>------ 已启动生成: 项目: ZERO_CHECK, 配置: Debug x64 ------
+1>1>Checking Build System
+2>------ 已启动生成: 项目: FortranLib, 配置: Debug x64 ------
+Generating output.cmake
+Compiling with Intel? Fortran Compiler Classic 2021.6.0 [Intel(R) 64]...
+hello.f
+Creating library...
+
+Build log written to  "file://E:/CODE/FDS/fds/Build/CMakeFiles/IntelVSImplicitPath/FortranLib.dir/Debug/BuildLog.htm"
+FortranLib - 0 error(s), 0 warning(s)
+3>------ 已启动生成: 项目: ALL_BUILD, 配置: Debug x64 ------
+3>Building Custom Rule C:/Program Files/CMake/share/cmake-4.0/Modules/IntelVSImplicitPath/CMakeLists.txt
+========== 生成: 成功 3 个，失败 0 个，最新 0 个，跳过 0 个 ==========
+

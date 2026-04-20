@@ -1,0 +1,10 @@
+^C:\PROGRAM FILES\CMAKE\SHARE\CMAKE-4.0\MODULES\INTELVSIMPLICITPATH\CMAKELISTS.TXT
+setlocal
+"C:\Program Files\CMake\bin\cmake.exe" "-SC:/Program Files/CMake/share/cmake-4.0/Modules/IntelVSImplicitPath" -BE:/CODE/FDS/fds/Build/CMakeFiles/IntelVSImplicitPath --check-stamp-file E:/CODE/FDS/fds/Build/CMakeFiles/IntelVSImplicitPath/CMakeFiles/generate.stamp
+if %errorlevel% neq 0 goto :cmEnd
+:cmEnd
+endlocal & call :cmErrorLevel %errorlevel% & goto :cmDone
+:cmErrorLevel
+exit /b %1
+:cmDone
+if %errorlevel% neq 0 goto :VCEnd

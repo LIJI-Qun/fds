@@ -1,0 +1,7 @@
+{
+	"InstallScripts" : 
+	[
+		"E:/CODE/FDS/fds/Build/_deps/hypre-subbuild/cmake_install.cmake"
+	],
+	"Parallel" : false
+}

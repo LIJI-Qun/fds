@@ -1,0 +1,13 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<Project ToolsVersion="16.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <ItemGroup>
+    <CustomBuild Include="E:\CODE\FDS\fds\Build\_deps\hypre-subbuild\CMakeFiles\5b406a89d4b3bdf83b0a3bc9027aa77e\generate.stamp.rule">
+      <Filter>CMake Rules</Filter>
+    </CustomBuild>
+  </ItemGroup>
+  <ItemGroup>
+    <Filter Include="CMake Rules">
+      <UniqueIdentifier>{1CE3E290-4446-3470-A992-BBC4EED9E5E8}</UniqueIdentifier>
+    </Filter>
+  </ItemGroup>
+</Project>

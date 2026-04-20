@@ -1,0 +1,46 @@
+{
+	"sources" : 
+	[
+		{
+			"file" : "E:/CODE/FDS/fds/Build/_deps/hypre-subbuild/CMakeFiles/hypre-populate"
+		},
+		{
+			"file" : "E:/CODE/FDS/fds/Build/_deps/hypre-subbuild/CMakeFiles/5b406a89d4b3bdf83b0a3bc9027aa77e/hypre-populate.rule"
+		},
+		{
+			"file" : "E:/CODE/FDS/fds/Build/_deps/hypre-subbuild/CMakeFiles/630abc44fc641b05463201a9a6cd0c05/hypre-populate-complete.rule"
+		},
+		{
+			"file" : "E:/CODE/FDS/fds/Build/_deps/hypre-subbuild/CMakeFiles/6d8a492e7824ad2cf3ccbbb58a01b32d/hypre-populate-build.rule"
+		},
+		{
+			"file" : "E:/CODE/FDS/fds/Build/_deps/hypre-subbuild/CMakeFiles/6d8a492e7824ad2cf3ccbbb58a01b32d/hypre-populate-configure.rule"
+		},
+		{
+			"file" : "E:/CODE/FDS/fds/Build/_deps/hypre-subbuild/CMakeFiles/6d8a492e7824ad2cf3ccbbb58a01b32d/hypre-populate-download.rule"
+		},
+		{
+			"file" : "E:/CODE/FDS/fds/Build/_deps/hypre-subbuild/CMakeFiles/6d8a492e7824ad2cf3ccbbb58a01b32d/hypre-populate-install.rule"
+		},
+		{
+			"file" : "E:/CODE/FDS/fds/Build/_deps/hypre-subbuild/CMakeFiles/6d8a492e7824ad2cf3ccbbb58a01b32d/hypre-populate-mkdir.rule"
+		},
+		{
+			"file" : "E:/CODE/FDS/fds/Build/_deps/hypre-subbuild/CMakeFiles/6d8a492e7824ad2cf3ccbbb58a01b32d/hypre-populate-patch.rule"
+		},
+		{
+			"file" : "E:/CODE/FDS/fds/Build/_deps/hypre-subbuild/CMakeFiles/6d8a492e7824ad2cf3ccbbb58a01b32d/hypre-populate-test.rule"
+		},
+		{
+			"file" : "E:/CODE/FDS/fds/Build/_deps/hypre-subbuild/CMakeFiles/6d8a492e7824ad2cf3ccbbb58a01b32d/hypre-populate-update.rule"
+		}
+	],
+	"target" : 
+	{
+		"labels" : 
+		[
+			"hypre-populate"
+		],
+		"name" : "hypre-populate"
+	}
+}
