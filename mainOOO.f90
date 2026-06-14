@@ -1382,25 +1382,14 @@ END SUBROUTINE MPI_INITIALIZATION_CHORES
 
 !> \brief Perform multiple pressure solves until velocity tolerance is satisfied
 
-!> \brief Perform multiple pressure solves until velocity tolerance is satisfied
-!> \details This version exports training data (CSV + binary stream) for a CNN-based pressure correction.
-
 SUBROUTINE PRESSURE_ITERATION_SCHEME
 
 USE CC_SCALARS, ONLY : GET_LINKED_FV
-USE, INTRINSIC :: ISO_FORTRAN_ENV, ONLY : INT32
 INTEGER :: NM_MAX_V,NM_MAX_P
 REAL(EB) :: TNOW,VELOCITY_ERROR_MAX_OLD,PRESSURE_ERROR_MAX_OLD
 
-! ======== 数据导出变量 ========
-LOGICAL :: WRITE_DATA
-INTEGER :: II, JJ, KK, IO_UNIT
-INTEGER(INT32) :: NFEAT
-CHARACTER(255) :: CSV_FILE, BIN_FILE
-REAL(EB), ALLOCATABLE, DIMENSION(:,:,:) :: SAVE_DIV, SAVE_RHS, SAVE_POLD, SAVE_PNEW
-! ===============================
-
 PRESSURE_ITERATIONS = 0
+
 IF (BAROCLINIC) THEN
    ITERATE_BAROCLINIC_TERM = .TRUE.
 ELSE
@@ -1408,44 +1397,12 @@ ELSE
 ENDIF
 
 IF(CC_IBM) THEN
+   ! Here we need an exchange of F for linking:
    CALL MESH_EXCHANGE(5)
    DO NM=LOWER_MESH_INDEX,UPPER_MESH_INDEX
       CALL GET_LINKED_FV(NM,DO_BAROCLINIC=.FALSE.)
    ENDDO
 ENDIF
-
-! ----- 触发条件（建议每1步都写，方便测试）-----
-WRITE_DATA = .FALSE.
-IF (CORRECTOR) THEN
-   WRITE(*,*) 'DEBUG: In corrector step, ICYC=', ICYC
-   IF (ICYC==1 .OR. MOD(ICYC,20)==0 .OR. (T+DT)>=T_END) WRITE_DATA = .TRUE.   
-   ! 测试时可每步输出，正式可改为每 N 步
-ENDIF
-
-! ----- 分配并保存旧数据 -----
-IF (WRITE_DATA) THEN
-   DO NM = LOWER_MESH_INDEX, UPPER_MESH_INDEX
-      M => MESHES(NM)
-      IF (ALLOCATED(SAVE_DIV)) DEALLOCATE(SAVE_DIV)
-      IF (ALLOCATED(SAVE_RHS)) DEALLOCATE(SAVE_RHS)
-      IF (ALLOCATED(SAVE_POLD)) DEALLOCATE(SAVE_POLD)
-      IF (ALLOCATED(SAVE_PNEW)) DEALLOCATE(SAVE_PNEW)
-      ALLOCATE(SAVE_DIV(M%IBAR, M%JBAR, M%KBAR))
-      ALLOCATE(SAVE_RHS(M%IBAR, M%JBAR, M%KBAR))
-      ALLOCATE(SAVE_POLD(M%IBAR, M%JBAR, M%KBAR))
-      ALLOCATE(SAVE_PNEW(M%IBAR, M%JBAR, M%KBAR))    ! <-- 必须分配！
-
-      IF (PREDICTOR) THEN
-         SAVE_DIV = M%DS
-         SAVE_POLD = M%H
-      ELSE
-         SAVE_DIV = M%D
-         SAVE_POLD = M%HS
-      ENDIF
-   ENDDO
-ENDIF
-
-! ...（中间压力迭代循环保持不变）...
 
 PRESSURE_ITERATION_LOOP: DO
 
@@ -1565,79 +1522,6 @@ PRESSURE_ITERATION_LOOP: DO
    ENDIF
 
 ENDDO PRESSURE_ITERATION_LOOP
-
-
-! ----- 迭代结束后，保存新压力 -----
-IF (WRITE_DATA) THEN
-   DO NM = LOWER_MESH_INDEX, UPPER_MESH_INDEX
-      M => MESHES(NM)
-      IF (PREDICTOR) THEN
-         SAVE_PNEW = M%H
-      ELSE
-         SAVE_PNEW = M%HS           ! 修正步的新压力
-      ENDIF
-   ENDDO
-ENDIF
-
-! ----- 写出文件（带初始化与错误检查）-----
-IF (WRITE_DATA) THEN
-   DO NM = LOWER_MESH_INDEX, UPPER_MESH_INDEX
-      M => MESHES(NM)
-
-      ! 1. 关键：初始化字符串和错误码
-      CSV_FILE = ''
-      BIN_FILE = ''
-      IERR = 0
-
-      ! 2. 构建文件名
-      WRITE(CSV_FILE, '(A,A,I0,A,I6.6,A)') TRIM(CHID), '_pressure_m', NM, '_step', ICYC, '.csv'
-      WRITE(BIN_FILE, '(A,A,I0,A,I6.6,A)') TRIM(CHID), '_pressure_m', NM, '_step', ICYC, '.bin'
-
-      ! 3. 写 CSV
-      IO_UNIT = -1
-      OPEN(NEWUNIT=IO_UNIT, FILE=TRIM(CSV_FILE), STATUS='REPLACE', FORM='FORMATTED', IOSTAT=IERR)
-      IF (IERR == 0) THEN
-         WRITE(IO_UNIT, '(A)') 'I,J,K,X,Y,Z,Div,RHS,P_old,P_new'
-         DO KK = 1, M%KBAR
-            DO JJ = 1, M%JBAR
-               DO II = 1, M%IBAR
-                  IF (M%CELL(M%CELL_INDEX(II,JJ,KK))%SOLID) CYCLE
-                  WRITE(IO_UNIT, '(I0,",",I0,",",I0,",",7(ES15.7,:,","))') &
-                     II, JJ, KK, M%XC(II), M%YC(JJ), M%ZC(KK),     &
-                     SAVE_DIV(II,JJ,KK), SAVE_RHS(II,JJ,KK),        &
-                     SAVE_POLD(II,JJ,KK), SAVE_PNEW(II,JJ,KK)
-               ENDDO
-            ENDDO
-         ENDDO
-         CLOSE(IO_UNIT)
-      ELSE
-         WRITE(LU_ERR,*) 'ERROR: Cannot open CSV file ', TRIM(CSV_FILE), ' IOSTAT=', IERR
-      END IF
-
-      ! 4. 写二进制（整数组直写，速度极快）
-      IERR = 0
-      IO_UNIT = -1
-      OPEN(NEWUNIT=IO_UNIT, FILE=TRIM(BIN_FILE), STATUS='REPLACE', FORM='UNFORMATTED', ACCESS='STREAM', IOSTAT=IERR)
-      IF (IERR == 0) THEN
-         NFEAT = 4_INT32
-         WRITE(IO_UNIT) NFEAT
-         WRITE(IO_UNIT) M%IBAR, M%JBAR, M%KBAR
-         WRITE(IO_UNIT) SAVE_DIV
-         WRITE(IO_UNIT) SAVE_RHS
-         WRITE(IO_UNIT) SAVE_POLD
-         WRITE(IO_UNIT) SAVE_PNEW
-         CLOSE(IO_UNIT)
-      ELSE
-         WRITE(LU_ERR,*) 'ERROR: Cannot open binary file ', TRIM(BIN_FILE), ' IOSTAT=', IERR
-      END IF
-   ENDDO
-
-   ! 释放内存
-   IF (ALLOCATED(SAVE_DIV)) DEALLOCATE(SAVE_DIV)
-   IF (ALLOCATED(SAVE_RHS)) DEALLOCATE(SAVE_RHS)
-   IF (ALLOCATED(SAVE_POLD)) DEALLOCATE(SAVE_POLD)
-   IF (ALLOCATED(SAVE_PNEW)) DEALLOCATE(SAVE_PNEW)
-END IF
 
 END SUBROUTINE PRESSURE_ITERATION_SCHEME
 

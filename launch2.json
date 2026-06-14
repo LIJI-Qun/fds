@@ -1,0 +1,43 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "FDS-6.10 Debug (Single Core)",
+      "type": "cppvsdbg",
+      "request": "launch",
+      "program": "${workspaceFolder}\\Build\\impi_intel_win_db\\fds_impi_intel_win_db.exe",
+      "args": ["E:/2EXAMPLE/2EXAMPLEFDS/TTTs/T3Dd/3Dfire/wall_WHO.fds"],
+      "stopAtEntry": false,
+      "cwd": "E:/2EXAMPLE/2EXAMPLEFDS/TTTs/T3Dd/3Dfire",
+      "console": "integratedTerminal",
+      "symbolSearchPath": "${workspaceFolder}\\Build\\impi_intel_win_db",
+      "sourceFileMap": {
+          "E:\\CODE\\FDS\\fds\\Source": "E:\\2CODE\\FDS\\fds\\Source"
+      },
+      "logging": {
+        "moduleLoad": true
+      }
+    },
+    {
+      "name": "FDS-6.10 Release (MPI Multi-Core)",
+      "type": "cppvsdbg",
+      "request": "launch",
+      // 1. 将 program 改为 mpiexec
+      "program": "mpiexec",
+      // 2. 将核心数和原来的 exe 路径都放到 args 里面
+      "args": [
+        "-n", "4",  // 这里指定使用 4 个核心（请根据你的 MESH 数量和 CPU 核心数修改）
+        "-localonly", // 强制在本地机器运行，防止 MPI 寻找网络节点
+        "${workspaceFolder}\\Build\\impi_intel_win\\fds_impi_intel_win.exe",
+        "E:/2EXAMPLE/2EXAMPLEFDS/TTTs/simpletes/simple_test.fds"
+      ],
+      "stopAtEntry": false,
+      "cwd": "E:/2EXAMPLE/2EXAMPLEFDS/TTTs/simpletes",
+      "console": "integratedTerminal",
+      // 3. 环境变量控制 OpenMP
+      "env": {
+        "OMP_NUM_THREADS": "1" // 限制每个 MPI 进程的 OpenMP 线程数为 1，防止 CPU 线程超载
+      }
+    }
+  ]
+}
