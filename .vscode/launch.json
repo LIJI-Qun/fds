@@ -6,9 +6,26 @@
       "type": "cppvsdbg",
       "request": "launch",
       "program": "${workspaceFolder}\\Build\\impi_intel_win_db\\fds_impi_intel_win_db.exe",
-      "args": ["E:/2EXAMPLE/2EXAMPLEFDS/TTTs/T3Dd/2Dfire/hrr_2000_0.fds"],
+      "args": ["E:/2CODE/AaaaaIi/4FireFDS/2firePDE/4Back/hrr_2080_0.fds"],
       "stopAtEntry": false,
-      "cwd": "E:/2EXAMPLE/2EXAMPLEFDS/TTTs/T3Dd/2Dfire",
+      "cwd": "E:/2CODE/AaaaaIi/4FireFDS/2firePDE/4Back",
+      "environment": [
+                // 将 Conda 路径加入 PATH，让 FDS 启动时能找到 python3x.dll
+                {
+                    "name": "PATH",
+                    "value": "E:\\ProgramData\\miniconda3\\envs\\torch2_env;E:\\ProgramData\\miniconda3\\envs\\torch2_env\\Library\\bin;E:\\ProgramData\\miniconda3\\envs\\torch2_env\\Scripts;${env:PATH}"
+                },
+                // Python 解释器去哪里找标准库 
+                {
+                    "name": "PYTHONHOME",
+                    "value": "E:\\ProgramData\\miniconda3\\envs\\torch2_env"
+                },
+                // Python cnn_predict_module.py
+                {
+                    "name": "PYTHONPATH",
+                    "value": "E:/2CODE/AaaaaIi/4FireFDS/2firePDE/4Back"
+                }
+            ],
       "console": "integratedTerminal",
       "symbolSearchPath": "${workspaceFolder}\\Build\\impi_intel_win_db",
 
@@ -23,15 +40,29 @@
       "request": "launch",
       // 这里将路径指向了没有 _db 后缀的 release 文件夹和 exe
       "program": "${workspaceFolder}\\Build\\impi_intel_win\\fds_impi_intel_win.exe",
-      "args": ["E:/2EXAMPLE/2EXAMPLEFDS/TTTs/T3Dd/2Dfire/hrr_2000_0.fds"],
+      "args": ["E:/2CODE/AaaaaIi/4FireFDS/2firePDE/4Back/hrr_2080_0.fds"],
       "stopAtEntry": false,
-      "cwd": "E:/2EXAMPLE/2EXAMPLEFDS/TTTs/T3Dd/2Dfire",
+      "cwd": "E:/2CODE/AaaaaIi/4FireFDS/2firePDE/4Back",
+      "environment": [
+        // 将 Conda 路径加入 PATH，让 FDS 启动时能找到 python3x.dll
+        {
+            "name": "PATH",
+            "value": "E:\\ProgramData\\miniconda3\\envs\\torch2_env;E:\\ProgramData\\miniconda3\\envs\\torch2_env\\Library\\bin;E:\\ProgramData\\miniconda3\\envs\\torch2_env\\Scripts;${env:PATH}"
+        },
+        // Python 解释器去哪里找标准库 
+        {
+            "name": "PYTHONHOME",
+            "value": "E:\\ProgramData\\miniconda3\\envs\\torch2_env"
+        },
+        // Python cnn_predict_module.py
+        {
+            "name": "PYTHONPATH",
+            "value": "E:/2CODE/AaaaaIi/4FireFDS/2firePDE/4Back"
+        }
+    ],
       "console": "integratedTerminal"
       // 去掉 symbolSearchPath 和 sourceFileMap，因为 Release 版本通常不用于断点调试
       
-
-
-
     }
   ]
 }

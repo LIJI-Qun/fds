@@ -1,23 +1,8 @@
 !> \brief Fire Dynamics Simulator (FDS) is a computational fluid dynamics (CFD) code designed to model
 !> fire and other thermal phenomena.
 
-MODULE CNN_INTERFACE
-  USE, INTRINSIC :: ISO_C_BINDING, ONLY: C_FLOAT, C_INT
-  IMPLICIT NONE
-  INTERFACE
-    SUBROUTINE cnn_initialize() BIND(C, name="cnn_initialize")
-    END SUBROUTINE
-    SUBROUTINE cnn_predict(input, output, B, C, H, W) BIND(C, name="cnn_predict")
-      IMPORT :: C_FLOAT, C_INT
-      REAL(C_FLOAT), DIMENSION(*) :: input, output
-      INTEGER(C_INT), VALUE :: B, C, H, W
-    END SUBROUTINE
-  END INTERFACE
-END MODULE CNN_INTERFACE
-
 PROGRAM FDS
 
-USE CNN_INTERFACE     ! 在这里导入
 USE PRECISION_PARAMETERS
 USE MESH_VARIABLES
 USE GLOBAL_CONSTANTS
@@ -1404,20 +1389,15 @@ SUBROUTINE PRESSURE_ITERATION_SCHEME
 
 USE CC_SCALARS, ONLY : GET_LINKED_FV
 USE, INTRINSIC :: ISO_FORTRAN_ENV, ONLY : INT32
-USE, INTRINSIC :: ISO_C_BINDING, ONLY : C_FLOAT, C_INT  ! <-- 引入 C 语言数据类型
 INTEGER :: NM_MAX_V,NM_MAX_P
 REAL(EB) :: TNOW,VELOCITY_ERROR_MAX_OLD,PRESSURE_ERROR_MAX_OLD
 
-! ======== 数据导出与 CNN 变量 ========
+! ======== 数据导出变量 ========
 LOGICAL :: WRITE_DATA
-INTEGER :: II, JJ, KK, IO_UNIT, IDX
+INTEGER :: II, JJ, KK, IO_UNIT
 INTEGER(INT32) :: NFEAT
 CHARACTER(255) :: CSV_FILE, BIN_FILE
 REAL(EB), ALLOCATABLE, DIMENSION(:,:,:) :: SAVE_DIV, SAVE_RHS, SAVE_POLD, SAVE_PNEW
-! 注意这里加上了 SAVE 属性
-REAL(C_FLOAT), ALLOCATABLE, SAVE, TARGET :: CNN_IN(:), CNN_OUT(:) ! <-- 用于向 C++ 传数据的 1D 数组
-INTEGER(C_INT), SAVE :: CNN_B, CNN_C, CNN_H, CNN_W   ! <-- CNN 的张量维度           
-REAL(EB) :: P_OLD_VAL, DIV_VAL
 ! ===============================
 
 PRESSURE_ITERATIONS = 0
@@ -1509,143 +1489,22 @@ PRESSURE_ITERATION_LOOP: DO
 
    ! Solve the Poission equation using either FFT or ULMAT, GLMAT, or UGLMAT
 
-   ! SELECT CASE(PRES_FLAG)
-   !    CASE (FFT_FLAG)
-   !       IF (TUNNEL_PRECONDITIONER) CALL TUNNEL_POISSON_SOLVER
-   !       DO NM=LOWER_MESH_INDEX,UPPER_MESH_INDEX
-   !          CALL PRESSURE_SOLVER_FFT(NM)
-   !       ENDDO
-   !    CASE (GLMAT_FLAG,UGLMAT_FLAG)
-   !       CALL GLMAT_SOLVER(T,DT)
-   !       CALL MESH_EXCHANGE(5)
-   !       CALL COPY_H_OMESH_TO_MESH
-   !    CASE (ULMAT_FLAG)
-   !       IF (TUNNEL_PRECONDITIONER) CALL TUNNEL_POISSON_SOLVER
-   !       DO NM=LOWER_MESH_INDEX,UPPER_MESH_INDEX
-   !          CALL ULMAT_SOLVER(NM,T,DT)
-   !       ENDDO
-   ! END SELECT
-
-! ====================================================================
-   ! 深度学习 CNN 压力求解器模块 (替代原本的 FFT/GLMAT/ULMAT)
-   ! ====================================================================
-   DO NM=LOWER_MESH_INDEX,UPPER_MESH_INDEX
-      M => MESHES(NM)
-      
-      ! 定义张量维度 (假设 2D 切片，J 维度为 1)
-      CNN_B = 1
-      CNN_C = 6
-      CNN_H = M%KBAR  ! 高度对应 K
-      CNN_W = M%IBAR  ! 宽度对应 I
-      JJ = 1          ! 2D 情况下 J 固定为 1
-      
-      ! [点4修复] 性能优化：仅在尚未分配时分配内存，依托 SAVE 属性避免反复开辟
-      IF (.NOT. ALLOCATED(CNN_IN)) ALLOCATE(CNN_IN(CNN_B * CNN_C * CNN_H * CNN_W))
-      IF (.NOT. ALLOCATED(CNN_OUT)) ALLOCATE(CNN_OUT(CNN_B * 1 * CNN_H * CNN_W))
-      
-      ! 1. 组装输入特征 (按照 Python 的 C-Contiguous 行主序: C, H, W 打平)
-      DO KK = 1, M%KBAR
-         DO II = 1, M%IBAR
-            IF (PREDICTOR) THEN
-               DIV_VAL   = M%DS(II,JJ,KK)
-               P_OLD_VAL = M%H(II,JJ,KK)
-            ELSE
-               DIV_VAL   = M%D(II,JJ,KK)
-               P_OLD_VAL = M%HS(II,JJ,KK)
-            ENDIF
-            
-            IDX = (KK - 1) * M%IBAR + (II - 1)
-            
-            CNN_IN(0 * CNN_H * CNN_W + IDX + 1) = REAL(M%XC(II), C_FLOAT)
-            CNN_IN(1 * CNN_H * CNN_W + IDX + 1) = REAL(M%YC(JJ), C_FLOAT)
-            CNN_IN(2 * CNN_H * CNN_W + IDX + 1) = REAL(M%ZC(KK), C_FLOAT)
-            CNN_IN(3 * CNN_H * CNN_W + IDX + 1) = REAL(DIV_VAL, C_FLOAT)
-            CNN_IN(4 * CNN_H * CNN_W + IDX + 1) = REAL(M%PRHS(II,JJ,KK), C_FLOAT)
-            CNN_IN(5 * CNN_H * CNN_W + IDX + 1) = REAL(P_OLD_VAL, C_FLOAT)
+   SELECT CASE(PRES_FLAG)
+      CASE (FFT_FLAG)
+         IF (TUNNEL_PRECONDITIONER) CALL TUNNEL_POISSON_SOLVER
+         DO NM=LOWER_MESH_INDEX,UPPER_MESH_INDEX
+            CALL PRESSURE_SOLVER_FFT(NM)
          ENDDO
-      ENDDO
-      
-      ! 2. 调用 C++ DLL 接口
-      IF (WRITE_DATA) WRITE(*,*) '>>> [DEBUG] 正在调用 CNN 进行压力预测...'
-      CALL cnn_predict(CNN_IN, CNN_OUT, CNN_B, CNN_C, CNN_H, CNN_W)
-      
-      ! 3. 将 CNN 预测出的新压力解包回 FDS 的网格内存中
-      DO KK = 1, M%KBAR
-         DO II = 1, M%IBAR
-            IDX = (KK - 1) * M%IBAR + (II - 1)
-            IF (PREDICTOR) THEN
-               M%H(II,JJ,KK) = REAL(CNN_OUT(IDX + 1), EB)
-            ELSE
-               M%HS(II,JJ,KK) = REAL(CNN_OUT(IDX + 1), EB)
-            ENDIF
+      CASE (GLMAT_FLAG,UGLMAT_FLAG)
+         CALL GLMAT_SOLVER(T,DT)
+         CALL MESH_EXCHANGE(5)
+         CALL COPY_H_OMESH_TO_MESH
+      CASE (ULMAT_FLAG)
+         IF (TUNNEL_PRECONDITIONER) CALL TUNNEL_POISSON_SOLVER
+         DO NM=LOWER_MESH_INDEX,UPPER_MESH_INDEX
+            CALL ULMAT_SOLVER(NM,T,DT)
          ENDDO
-      ENDDO
-      
-      ! 4. 更新外部幽灵网格 (Ghost Cells)
-      DO KK = 1, M%KBAR
-         IF (PREDICTOR) THEN
-            IF (M%LBC==3 .OR. M%LBC==4)             M%H(0,JJ,KK)      = M%H(1,JJ,KK)      - M%DXI*M%BXS(JJ,KK)
-            IF (M%LBC==3 .OR. M%LBC==2 .OR. M%LBC==6) M%H(M%IBP1,JJ,KK) = M%H(M%IBAR,JJ,KK) + M%DXI*M%BXF(JJ,KK)
-            IF (M%LBC==1 .OR. M%LBC==2)             M%H(0,JJ,KK)      =-M%H(1,JJ,KK)      + 2._EB*M%BXS(JJ,KK)
-            IF (M%LBC==1 .OR. M%LBC==4 .OR. M%LBC==5) M%H(M%IBP1,JJ,KK) =-M%H(M%IBAR,JJ,KK) + 2._EB*M%BXF(JJ,KK)
-            IF (M%LBC==5 .OR. M%LBC==6)             M%H(0,JJ,KK)      = M%H(1,JJ,KK)
-            IF (M%LBC==0) THEN
-               M%H(0,JJ,KK)      = M%H(M%IBAR,JJ,KK)
-               M%H(M%IBP1,JJ,KK) = M%H(1,JJ,KK)
-            ENDIF
-         ELSE
-            IF (M%LBC==3 .OR. M%LBC==4)             M%HS(0,JJ,KK)      = M%HS(1,JJ,KK)      - M%DXI*M%BXS(JJ,KK)
-            IF (M%LBC==3 .OR. M%LBC==2 .OR. M%LBC==6) M%HS(M%IBP1,JJ,KK) = M%HS(M%IBAR,JJ,KK) + M%DXI*M%BXF(JJ,KK)
-            IF (M%LBC==1 .OR. M%LBC==2)             M%HS(0,JJ,KK)      =-M%HS(1,JJ,KK)      + 2._EB*M%BXS(JJ,KK)
-            IF (M%LBC==1 .OR. M%LBC==4 .OR. M%LBC==5) M%HS(M%IBP1,JJ,KK) =-M%HS(M%IBAR,JJ,KK) + 2._EB*M%BXF(JJ,KK)
-            IF (M%LBC==5 .OR. M%LBC==6)             M%HS(0,JJ,KK)      = M%HS(1,JJ,KK)
-            IF (M%LBC==0) THEN
-               M%HS(0,JJ,KK)      = M%HS(M%IBAR,JJ,KK)
-               M%HS(M%IBP1,JJ,KK) = M%HS(1,JJ,KK)
-            ENDIF
-         ENDIF
-      ENDDO
-
-      DO II = 1, M%IBAR
-         IF (PREDICTOR) THEN
-            IF (M%NBC==3 .OR. M%NBC==4)             M%H(II,JJ,0)      = M%H(II,JJ,1)      - M%DZETA*M%BZS(II,JJ)
-            IF (M%NBC==3 .OR. M%NBC==2)             M%H(II,JJ,M%KBP1) = M%H(II,JJ,M%KBAR) + M%DZETA*M%BZF(II,JJ)
-            IF (M%NBC==1 .OR. M%NBC==2)             M%H(II,JJ,0)      =-M%H(II,JJ,1)      + 2._EB*M%BZS(II,JJ)
-            IF (M%NBC==1 .OR. M%NBC==4)             M%H(II,JJ,M%KBP1) =-M%H(II,JJ,M%KBAR) + 2._EB*M%BZF(II,JJ)
-            IF (M%NBC==0) THEN
-               M%H(II,JJ,0)      = M%H(II,JJ,M%KBAR)
-               M%H(II,JJ,M%KBP1) = M%H(II,JJ,1)
-            ENDIF
-         ELSE
-            IF (M%NBC==3 .OR. M%NBC==4)             M%HS(II,JJ,0)      = M%HS(II,JJ,1)      - M%DZETA*M%BZS(II,JJ)
-            IF (M%NBC==3 .OR. M%NBC==2)             M%HS(II,JJ,M%KBP1) = M%HS(II,JJ,M%KBAR) + M%DZETA*M%BZF(II,JJ)
-            IF (M%NBC==1 .OR. M%NBC==2)             M%HS(II,JJ,0)      =-M%HS(II,JJ,1)      + 2._EB*M%BZS(II,JJ)
-            IF (M%NBC==1 .OR. M%NBC==4)             M%HS(II,JJ,M%KBP1) =-M%HS(II,JJ,M%KBAR) + 2._EB*M%BZF(II,JJ)
-            IF (M%NBC==0) THEN
-               M%HS(II,JJ,0)      = M%HS(II,JJ,M%KBAR)
-               M%HS(II,JJ,M%KBP1) = M%HS(II,JJ,1)
-            ENDIF
-         ENDIF
-      ENDDO
-      
-      ! [点3修复] 填充求解器残差，避免内存脏数据导致 FDS 误判
-      M%POIS_ERR = 0.0_EB
-      M%POIS_PTB = 0.0_EB
-      M%RESMAX   = 0.0_EB
-      PRESSURE_ERROR_MAX(NM) = 0.0_EB
-      VELOCITY_ERROR_MAX(NM) = 0.0_EB
-      
-   ENDDO
-   
-   ! [点2修复] 显式调用 MESH_EXCHANGE 进行多网格插值边界同步
-   ! (此操作会将刚才更新好的幽灵网格和边界压力发送给相邻网格)
-   IF (LEVEL_SET_MODE/=1) CALL MESH_EXCHANGE(5)
-   
-   ! [点1修复] 强制切断 FDS 原有的泊松迭代逻辑
-   ITERATE_PRESSURE = .FALSE.
-   ITERATE_BAROCLINIC_TERM = .FALSE.
-   ! ====================================================================
-
+   END SELECT
 
    ! Check the residuals of the Poisson solution
 
