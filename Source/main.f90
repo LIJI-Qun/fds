@@ -1379,9 +1379,6 @@ ENDIF
 
 END SUBROUTINE MPI_INITIALIZATION_CHORES
 
-
-!> \brief Perform multiple pressure solves until velocity tolerance is satisfied
-
 !> \brief Perform multiple pressure solves until velocity tolerance is satisfied
 !> \details This version exports training data (CSV + binary stream) for a CNN-based pressure correction.
 
@@ -1397,7 +1394,14 @@ LOGICAL :: WRITE_DATA
 INTEGER :: II, JJ, KK, IO_UNIT
 INTEGER(INT32) :: NFEAT
 CHARACTER(255) :: CSV_FILE, BIN_FILE
-REAL(EB), ALLOCATABLE, DIMENSION(:,:,:) :: SAVE_DIV, SAVE_RHS, SAVE_POLD, SAVE_PNEW
+
+! 定义一个结构体，把 4 个 3D 数组打包
+TYPE :: EXPORT_DATA_TYPE
+   REAL(EB), ALLOCATABLE, DIMENSION(:,:,:) :: DIV, RHS, POLD, PNEW
+END TYPE EXPORT_DATA_TYPE
+
+! 声明一个大小为 NMESHES 的一维数组，每个元素对应一个网格的数据
+TYPE(EXPORT_DATA_TYPE), ALLOCATABLE, DIMENSION(:) :: EXPORT_DATA
 ! ===============================
 
 PRESSURE_ITERATIONS = 0
@@ -1417,30 +1421,38 @@ ENDIF
 ! ----- 触发条件（建议每1步都写，方便测试）-----
 WRITE_DATA = .FALSE.
 IF (CORRECTOR) THEN
-   WRITE(*,*) 'DEBUG: In corrector step, ICYC=', ICYC
+   WRITE(*,*) 'In corrector step, ICYC=', ICYC
    IF (ICYC==1 .OR. MOD(ICYC,20)==0 .OR. (T+DT)>=T_END) WRITE_DATA = .TRUE.   
    ! 测试时可每步输出，正式可改为每 N 步
 ENDIF
 
-! ----- 分配并保存旧数据 -----
+   
+   ! ----- 分配并保存旧数据 (POLD, DIV) -----
 IF (WRITE_DATA) THEN
+   IF (.NOT. ALLOCATED(EXPORT_DATA)) ALLOCATE(EXPORT_DATA(NMESHES))
+   
    DO NM = LOWER_MESH_INDEX, UPPER_MESH_INDEX
       M => MESHES(NM)
-      IF (ALLOCATED(SAVE_DIV)) DEALLOCATE(SAVE_DIV)
-      IF (ALLOCATED(SAVE_RHS)) DEALLOCATE(SAVE_RHS)
-      IF (ALLOCATED(SAVE_POLD)) DEALLOCATE(SAVE_POLD)
-      IF (ALLOCATED(SAVE_PNEW)) DEALLOCATE(SAVE_PNEW)
-      ALLOCATE(SAVE_DIV(M%IBAR, M%JBAR, M%KBAR))
-      ALLOCATE(SAVE_RHS(M%IBAR, M%JBAR, M%KBAR))
-      ALLOCATE(SAVE_POLD(M%IBAR, M%JBAR, M%KBAR))
-      ALLOCATE(SAVE_PNEW(M%IBAR, M%JBAR, M%KBAR))    ! <-- 必须分配！
-
+      
+      ! 独立清理当前网格的内存
+      IF (ALLOCATED(EXPORT_DATA(NM)%DIV))  DEALLOCATE(EXPORT_DATA(NM)%DIV)
+      IF (ALLOCATED(EXPORT_DATA(NM)%RHS))  DEALLOCATE(EXPORT_DATA(NM)%RHS)
+      IF (ALLOCATED(EXPORT_DATA(NM)%POLD)) DEALLOCATE(EXPORT_DATA(NM)%POLD)
+      IF (ALLOCATED(EXPORT_DATA(NM)%PNEW)) DEALLOCATE(EXPORT_DATA(NM)%PNEW)
+      
+      ! 为当前网格分配正确的尺寸
+      ALLOCATE(EXPORT_DATA(NM)%DIV(M%IBAR, M%JBAR, M%KBAR))
+      ALLOCATE(EXPORT_DATA(NM)%RHS(M%IBAR, M%JBAR, M%KBAR))
+      ALLOCATE(EXPORT_DATA(NM)%POLD(M%IBAR, M%JBAR, M%KBAR))
+      ALLOCATE(EXPORT_DATA(NM)%PNEW(M%IBAR, M%JBAR, M%KBAR))
+      
+      ! 切片赋值，防止边界越界
       IF (PREDICTOR) THEN
-         SAVE_DIV = M%DS
-         SAVE_POLD = M%H
+         EXPORT_DATA(NM)%DIV  = M%DS(1:M%IBAR, 1:M%JBAR, 1:M%KBAR)
+         EXPORT_DATA(NM)%POLD = M%H(1:M%IBAR,  1:M%JBAR, 1:M%KBAR)
       ELSE
-         SAVE_DIV = M%D
-         SAVE_POLD = M%HS
+         EXPORT_DATA(NM)%DIV  = M%D(1:M%IBAR,  1:M%JBAR, 1:M%KBAR)
+         EXPORT_DATA(NM)%POLD = M%HS(1:M%IBAR, 1:M%JBAR, 1:M%KBAR)
       ENDIF
    ENDDO
 ENDIF
@@ -1475,9 +1487,16 @@ PRESSURE_ITERATION_LOOP: DO
       IF (CC_IBM) CALL CC_NO_FLUX(DT,NM,.FALSE.) ! set WALL_WORK1 to 0 in cells inside geometries.
       IF (PRESSURE_ITERATIONS==1) MESHES(NM)%WALL_WORK1 = 0._EB
       CALL PRESSURE_SOLVER_COMPUTE_RHS(T,DT,NM)
+          ! ---> 【拦截动作】只在内存中保存切片，不落盘
+         ! >>> 保存 RHS 的代码 <<<
+      IF (WRITE_DATA) THEN
+         M => MESHES(NM)
+         EXPORT_DATA(NM)%RHS(1:M%IBAR, 1:M%JBAR, 1:M%KBAR) = M%PRHS(1:M%IBAR, 1:M%JBAR, 1:M%KBAR)
+      ENDIF
    ENDDO
 
    ! Solve the Poission equation using either FFT or ULMAT, GLMAT, or UGLMAT
+   ! 2. 调用泊松求解器 (求解器会覆写 PRHS，并更新 H 或 HS)
 
    SELECT CASE(PRES_FLAG)
       CASE (FFT_FLAG)
@@ -1568,28 +1587,26 @@ ENDDO PRESSURE_ITERATION_LOOP
 
 
 ! ----- 迭代结束后，保存新压力 -----
+
 IF (WRITE_DATA) THEN
    DO NM = LOWER_MESH_INDEX, UPPER_MESH_INDEX
       M => MESHES(NM)
       IF (PREDICTOR) THEN
-         SAVE_PNEW = M%H
+         EXPORT_DATA(NM)%PNEW = M%H(1:M%IBAR,  1:M%JBAR, 1:M%KBAR)
       ELSE
-         SAVE_PNEW = M%HS           ! 修正步的新压力
+         EXPORT_DATA(NM)%PNEW = M%HS(1:M%IBAR, 1:M%JBAR, 1:M%KBAR)
       ENDIF
    ENDDO
 ENDIF
-
-! ----- 写出文件（带初始化与错误检查）-----
+   
+   ! ----- 写出文件 -----
 IF (WRITE_DATA) THEN
    DO NM = LOWER_MESH_INDEX, UPPER_MESH_INDEX
       M => MESHES(NM)
-
-      ! 1. 关键：初始化字符串和错误码
       CSV_FILE = ''
       BIN_FILE = ''
       IERR = 0
 
-      ! 2. 构建文件名
       WRITE(CSV_FILE, '(A,A,I0,A,I6.6,A)') TRIM(CHID), '_pressure_m', NM, '_step', ICYC, '.csv'
       WRITE(BIN_FILE, '(A,A,I0,A,I6.6,A)') TRIM(CHID), '_pressure_m', NM, '_step', ICYC, '.bin'
 
@@ -1598,14 +1615,15 @@ IF (WRITE_DATA) THEN
       OPEN(NEWUNIT=IO_UNIT, FILE=TRIM(CSV_FILE), STATUS='REPLACE', FORM='FORMATTED', IOSTAT=IERR)
       IF (IERR == 0) THEN
          WRITE(IO_UNIT, '(A)') 'I,J,K,X,Y,Z,Div,RHS,P_old,P_new'
+         ! Fortran 是列主序，最内层循环应该是 I，然后 J，最外层 K。你的循环顺序写得很完美！
          DO KK = 1, M%KBAR
             DO JJ = 1, M%JBAR
                DO II = 1, M%IBAR
                   IF (M%CELL(M%CELL_INDEX(II,JJ,KK))%SOLID) CYCLE
                   WRITE(IO_UNIT, '(I0,",",I0,",",I0,",",7(ES15.7,:,","))') &
                      II, JJ, KK, M%XC(II), M%YC(JJ), M%ZC(KK),     &
-                     SAVE_DIV(II,JJ,KK), SAVE_RHS(II,JJ,KK),        &
-                     SAVE_POLD(II,JJ,KK), SAVE_PNEW(II,JJ,KK)
+                     EXPORT_DATA(NM)%DIV(II,JJ,KK), EXPORT_DATA(NM)%RHS(II,JJ,KK),  &
+                     EXPORT_DATA(NM)%POLD(II,JJ,KK), EXPORT_DATA(NM)%PNEW(II,JJ,KK)
                ENDDO
             ENDDO
          ENDDO
@@ -1614,7 +1632,7 @@ IF (WRITE_DATA) THEN
          WRITE(LU_ERR,*) 'ERROR: Cannot open CSV file ', TRIM(CSV_FILE), ' IOSTAT=', IERR
       END IF
 
-      ! 4. 写二进制（整数组直写，速度极快）
+      ! 4. 写二进制
       IERR = 0
       IO_UNIT = -1
       OPEN(NEWUNIT=IO_UNIT, FILE=TRIM(BIN_FILE), STATUS='REPLACE', FORM='UNFORMATTED', ACCESS='STREAM', IOSTAT=IERR)
@@ -1622,22 +1640,21 @@ IF (WRITE_DATA) THEN
          NFEAT = 4_INT32
          WRITE(IO_UNIT) NFEAT
          WRITE(IO_UNIT) M%IBAR, M%JBAR, M%KBAR
-         WRITE(IO_UNIT) SAVE_DIV
-         WRITE(IO_UNIT) SAVE_RHS
-         WRITE(IO_UNIT) SAVE_POLD
-         WRITE(IO_UNIT) SAVE_PNEW
+         ! 直接将 3D 张量以 Stream 形式冲入硬盘，极为高效
+         WRITE(IO_UNIT) EXPORT_DATA(NM)%DIV
+         WRITE(IO_UNIT) EXPORT_DATA(NM)%RHS
+         WRITE(IO_UNIT) EXPORT_DATA(NM)%POLD
+         WRITE(IO_UNIT) EXPORT_DATA(NM)%PNEW
          CLOSE(IO_UNIT)
       ELSE
          WRITE(LU_ERR,*) 'ERROR: Cannot open binary file ', TRIM(BIN_FILE), ' IOSTAT=', IERR
       END IF
    ENDDO
-
-   ! 释放内存
-   IF (ALLOCATED(SAVE_DIV)) DEALLOCATE(SAVE_DIV)
-   IF (ALLOCATED(SAVE_RHS)) DEALLOCATE(SAVE_RHS)
-   IF (ALLOCATED(SAVE_POLD)) DEALLOCATE(SAVE_POLD)
-   IF (ALLOCATED(SAVE_PNEW)) DEALLOCATE(SAVE_PNEW)
+   
+   ! 写完后立即释放内存，保持低开销
+   DEALLOCATE(EXPORT_DATA)
 END IF
+
 
 END SUBROUTINE PRESSURE_ITERATION_SCHEME
 
