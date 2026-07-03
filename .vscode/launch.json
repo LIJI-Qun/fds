@@ -6,9 +6,9 @@
       "type": "cppvsdbg",
       "request": "launch",
       "program": "${workspaceFolder}\\Build\\impi_intel_win_db\\fds_impi_intel_win_db.exe",
-      "args": ["E:/2CODE/AaaaaIi/4FireFDS/2firePDE/4Back/hrr_2080_0.fds"],
+      "args": ["E:/2CODE/AaaaaIi/4FireFDS/2cavityPDE/T_400_0/4BackCnnTTTT/Thot_130_0.fds"],
       "stopAtEntry": false,
-      "cwd": "E:/2CODE/AaaaaIi/4FireFDS/2firePDE/4Back",
+      "cwd": "E:/2CODE/AaaaaIi/4FireFDS/2cavityPDE/T_400_0/4BackCnnTTTT",
       "environment": [
                 // 将 Conda 路径加入 PATH，让 FDS 启动时能找到 python3x.dll
                 {
@@ -23,7 +23,7 @@
                 // Python cnn_predict_module.py
                 {
                     "name": "PYTHONPATH",
-                    "value": "E:/2CODE/AaaaaIi/4FireFDS/2firePDE/4Back"
+                    "value": "E:/2CODE/AaaaaIi/4FireFDS/2cavityPDE/T_400_0/4BackCnnTTTT"
                 }
             ],
       "console": "integratedTerminal",
@@ -40,9 +40,9 @@
       "request": "launch",
       // 这里将路径指向了没有 _db 后缀的 release 文件夹和 exe
       "program": "${workspaceFolder}\\Build\\impi_intel_win\\fds_impi_intel_win.exe",
-      "args": ["E:/2CODE/AaaaaIi/4FireFDS/2firePDE/4Back/hrr_2080_0.fds"],
+      "args": ["E:/2CODE/AaaaaIi/4FireFDS/2cavityPDE/T_400_0/4BackCnnTTTT/Thot_130_0.fds"],
       "stopAtEntry": false,
-      "cwd": "E:/2CODE/AaaaaIi/4FireFDS/2firePDE/4Back",
+      "cwd": "E:/2CODE/AaaaaIi/4FireFDS/2cavityPDE/T_400_0/4BackCnnTTTT",
       "environment": [
         // 将 Conda 路径加入 PATH，让 FDS 启动时能找到 python3x.dll
         {
@@ -57,7 +57,7 @@
         // Python cnn_predict_module.py
         {
             "name": "PYTHONPATH",
-            "value": "E:/2CODE/AaaaaIi/4FireFDS/2firePDE/4Back"
+            "value": "E:/2CODE/AaaaaIi/4FireFDS/2cavityPDE/T_400_0/4BackCnnTTTT"
         }
     ],
       "console": "integratedTerminal"
