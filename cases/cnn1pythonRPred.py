@@ -8,7 +8,7 @@ SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 if SCRIPT_DIR not in sys.path:
     sys.path.insert(0, SCRIPT_DIR)
 
-from unet_model_pressure2 import StandardUNet
+from unet_model_pressure1 import StandardUNet
 
 # ---- 方腔专用参数 ----
 MODEL_PATH = os.path.join(SCRIPT_DIR, "best_pressure_unet.pth")
