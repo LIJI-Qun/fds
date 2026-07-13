@@ -1,23 +1,8 @@
 !> \brief Fire Dynamics Simulator (FDS) is a computational fluid dynamics (CFD) code designed to model
 !> fire and other thermal phenomena.
 
-MODULE CNN_INTERFACE
-  USE, INTRINSIC :: ISO_C_BINDING, ONLY: C_FLOAT, C_INT
-  IMPLICIT NONE
-  INTERFACE
-    SUBROUTINE cnn_initialize() BIND(C, name="cnn_initialize")
-    END SUBROUTINE
-    SUBROUTINE cnn_predict(input, output, B, C, H, W) BIND(C, name="cnn_predict")
-      IMPORT :: C_FLOAT, C_INT
-      REAL(C_FLOAT), DIMENSION(*) :: input, output
-      INTEGER(C_INT), VALUE :: B, C, H, W
-    END SUBROUTINE
-  END INTERFACE
-END MODULE CNN_INTERFACE
-
 PROGRAM FDS
 
-USE CNN_INTERFACE     ! 在这里导入
 USE PRECISION_PARAMETERS
 USE MESH_VARIABLES
 USE GLOBAL_CONSTANTS
@@ -1394,44 +1379,14 @@ ENDIF
 
 END SUBROUTINE MPI_INITIALIZATION_CHORES
 
+
 !> \brief Perform multiple pressure solves until velocity tolerance is satisfied
-!> \details This version exports training data and utilizes a CNN as an initial guess 
-!>          for the pressure solver to accelerate convergence, with a dynamic fallback mechanism.
-!>          When FULL_CNN_SOLVE is active (50-60 s Corrector), the CNN completely replaces
-!>          the pressure solver.
 
 SUBROUTINE PRESSURE_ITERATION_SCHEME
-
 USE CC_SCALARS, ONLY : GET_LINKED_FV
-USE, INTRINSIC :: ISO_FORTRAN_ENV, ONLY : INT32
-USE, INTRINSIC :: ISO_C_BINDING, ONLY : C_FLOAT, C_INT
-INTEGER :: NM_MAX_V,NM_MAX_P
+USE PRES, ONLY : EXPORT_CNN_DATA  !用于导出训练数据
 REAL(EB) :: TNOW,VELOCITY_ERROR_MAX_OLD,PRESSURE_ERROR_MAX_OLD
-
-! ======== 数据导出与 CNN 变量 ========
-LOGICAL :: WRITE_DATA
-INTEGER :: II, JJ, KK, IO_UNIT, IDX
-INTEGER(INT32) :: NFEAT
-CHARACTER(255) :: CSV_FILE, BIN_FILE
-REAL(EB), ALLOCATABLE, DIMENSION(:,:,:) :: SAVE_DIV, SAVE_RHS, SAVE_POLD, SAVE_PNEW
-REAL(C_FLOAT), ALLOCATABLE, SAVE, TARGET :: CNN_IN(:), CNN_OUT(:)
-INTEGER(C_INT), SAVE :: CNN_B, CNN_C, CNN_H, CNN_W
-REAL(EB) :: P_OLD_VAL, DIV_VAL
-
-! ======== 用于记录时间序列残差的日志变量 ========
-LOGICAL, SAVE :: ERROR_CSV_INITIALIZED = .FALSE.
-INTEGER, SAVE :: ERROR_CSV_UNIT
-CHARACTER(255) :: ERROR_CSV_FILE
-INTEGER :: IERR_CSV
-
-! ======== CNN  ========
-LOGICAL, SAVE :: CNN_ACTIVE = .TRUE.
-INTEGER, SAVE :: CNN_COOLDOWN = 0
-REAL(EB), PARAMETER :: CNN_RES_TOL = 0.5_EB
-LOGICAL :: USED_CNN
-
-! ======== 完全替代标志 ========
-LOGICAL :: FULL_CNN_SOLVE
+INTEGER :: NM_MAX_V,NM_MAX_P
 
 PRESSURE_ITERATIONS = 0
 IF (BAROCLINIC) THEN
@@ -1441,47 +1396,10 @@ ELSE
 ENDIF
 
 IF(CC_IBM) THEN
+   ! Here we need an exchange of F for linking:
    CALL MESH_EXCHANGE(5)
    DO NM=LOWER_MESH_INDEX,UPPER_MESH_INDEX
       CALL GET_LINKED_FV(NM,DO_BAROCLINIC=.FALSE.)
-   ENDDO
-ENDIF
-
-! ----- 触发条件 -----
-WRITE_DATA = .FALSE.
-IF (CORRECTOR) THEN
-   IF (ICYC==1 .OR. (T+DT)>=T_END) WRITE_DATA = .TRUE.  
-   IF (T >= 49.1_EB .AND. T <= 50.2_EB) THEN
-      IF (MOD(ICYC,1)==0) WRITE_DATA = .TRUE.   
-   ENDIF
-ENDIF
-
-! ----- 决定是否进入完全 CNN 替代模式 -----
-FULL_CNN_SOLVE = .FALSE.
-IF (CORRECTOR .AND. T >= 50.0_EB .AND. T <= 60.0_EB) THEN
-   IF (CNN_ACTIVE) FULL_CNN_SOLVE = .TRUE.
-ENDIF
-
-! ----- 分配并保存旧数据 -----
-IF (WRITE_DATA) THEN
-   DO NM = LOWER_MESH_INDEX, UPPER_MESH_INDEX
-      M => MESHES(NM)
-      IF (ALLOCATED(SAVE_DIV)) DEALLOCATE(SAVE_DIV)
-      IF (ALLOCATED(SAVE_RHS)) DEALLOCATE(SAVE_RHS)
-      IF (ALLOCATED(SAVE_POLD)) DEALLOCATE(SAVE_POLD)
-      IF (ALLOCATED(SAVE_PNEW)) DEALLOCATE(SAVE_PNEW)
-      ALLOCATE(SAVE_DIV(M%IBAR, M%JBAR, M%KBAR))
-      ALLOCATE(SAVE_RHS(M%IBAR, M%JBAR, M%KBAR))
-      ALLOCATE(SAVE_POLD(M%IBAR, M%JBAR, M%KBAR))
-      ALLOCATE(SAVE_PNEW(M%IBAR, M%JBAR, M%KBAR))    
-
-      IF (PREDICTOR) THEN
-         SAVE_DIV = M%DS
-         SAVE_POLD = M%H
-      ELSE
-         SAVE_DIV = M%D
-         SAVE_POLD = M%HS
-      ENDIF
    ENDDO
 ENDIF
 
@@ -1489,6 +1407,9 @@ PRESSURE_ITERATION_LOOP: DO
 
    PRESSURE_ITERATIONS = PRESSURE_ITERATIONS + 1
    TOTAL_PRESSURE_ITERATIONS = TOTAL_PRESSURE_ITERATIONS + 1
+
+   ! The following loops and exchange always get executed the first pass through the PRESSURE_ITERATION_LOOP.
+   ! If we need to iterate the baroclinic torque term, the loop is executed each time.
 
    IF (ITERATE_BAROCLINIC_TERM .OR. PRESSURE_ITERATIONS==1) THEN
       DO NM=LOWER_MESH_INDEX,UPPER_MESH_INDEX
@@ -1502,142 +1423,30 @@ PRESSURE_ITERATION_LOOP: DO
    ENDIF
 
    ! Compute the right hand side (RHS) and boundary conditions
+   ! be zero the first time the pressure solver is called.
    DO NM=LOWER_MESH_INDEX,UPPER_MESH_INDEX
       CALL NO_FLUX(DT,NM)
       IF (CC_IBM) CALL CC_NO_FLUX(DT,NM,.FALSE.) 
       IF (PRESSURE_ITERATIONS==1) MESHES(NM)%WALL_WORK1 = 0._EB
-      
       CALL PRESSURE_SOLVER_COMPUTE_RHS(T,DT,NM)
-      
-      IF (WRITE_DATA .AND. PRESSURE_ITERATIONS==1) THEN
-         IF (MY_RANK == PROCESS(NM)) THEN 
-            SAVE_RHS(1:M%IBAR, 1:M%JBAR, 1:M%KBAR) = M%PRHS(1:M%IBAR, 1:M%JBAR, 1:M%KBAR)
-         ENDIF
-      ENDIF
    ENDDO
-   
-   USED_CNN = .FALSE.
-
-   ! ====================================================================
-   ! 1. 完全替代模式：CNN 直接给出最终压力场并退出迭代
-   ! ====================================================================
-   IF (FULL_CNN_SOLVE .AND. PRESSURE_ITERATIONS == 1) THEN
-      DO NM = LOWER_MESH_INDEX, UPPER_MESH_INDEX
-         M => MESHES(NM)
-
-         CNN_B = 1
-         CNN_C = 6
-         CNN_H = M%KBAR  
-         CNN_W = M%IBAR  
-
-         IF (.NOT. ALLOCATED(CNN_IN)) ALLOCATE(CNN_IN(CNN_B * CNN_C * CNN_H * CNN_W))
-         IF (.NOT. ALLOCATED(CNN_OUT)) ALLOCATE(CNN_OUT(CNN_B * 1 * CNN_H * CNN_W))
-
-         IF (WRITE_DATA) WRITE(*,*) '>>> CNN provide Pressure Solution (Mesh ', NM, ')...'
-
-         ! 按 JJ 切片预测（支持 2D / 3D）
-         DO JJ = 1, M%JBAR
-
-            DO KK = 1, M%KBAR
-               DO II = 1, M%IBAR
-                  DIV_VAL   = M%D(II,JJ,KK)
-                  P_OLD_VAL = M%HS(II,JJ,KK)
-
-                  IDX = (KK - 1) * M%IBAR + (II - 1)
-                  CNN_IN(0 * CNN_H * CNN_W + IDX + 1) = REAL(M%XC(II), C_FLOAT)
-                  CNN_IN(1 * CNN_H * CNN_W + IDX + 1) = REAL(M%YC(JJ), C_FLOAT)
-                  CNN_IN(2 * CNN_H * CNN_W + IDX + 1) = REAL(M%ZC(KK), C_FLOAT)
-                  CNN_IN(3 * CNN_H * CNN_W + IDX + 1) = REAL(DIV_VAL, C_FLOAT)
-                  CNN_IN(4 * CNN_H * CNN_W + IDX + 1) = REAL(M%PRHS(II,JJ,KK), C_FLOAT)
-                  CNN_IN(5 * CNN_H * CNN_W + IDX + 1) = REAL(P_OLD_VAL, C_FLOAT)
-               ENDDO
-            ENDDO
-
-            CALL cnn_predict(CNN_IN, CNN_OUT, CNN_B, CNN_C, CNN_H, CNN_W)
-
-            DO KK = 1, M%KBAR
-               DO II = 1, M%IBAR
-                  IDX = (KK - 1) * M%IBAR + (II - 1)
-                  M%HS(II,JJ,KK) = REAL(CNN_OUT(IDX + 1), EB)
-               ENDDO
-            ENDDO
-
+   ! Solve the Poission equation using either FFT or ULMAT, GLMAT, or UGLMAT
+   SELECT CASE(PRES_FLAG)
+      CASE (FFT_FLAG)
+         IF (TUNNEL_PRECONDITIONER) CALL TUNNEL_POISSON_SOLVER
+         DO NM=LOWER_MESH_INDEX,UPPER_MESH_INDEX
+            CALL PRESSURE_SOLVER_FFT(NM)
          ENDDO
-
-         ! 更新外部幽灵网格边界条件
-         ! X 方向
-         DO KK = 1, M%KBAR
-            DO JJ = 1, M%JBAR
-               IF (M%LBC==3 .OR. M%LBC==4)              M%HS(0,JJ,KK)      = M%HS(1,JJ,KK)      - M%DXI*M%BXS(JJ,KK)
-               IF (M%LBC==3 .OR. M%LBC==2 .OR. M%LBC==6) M%HS(M%IBP1,JJ,KK) = M%HS(M%IBAR,JJ,KK) + M%DXI*M%BXF(JJ,KK)
-               IF (M%LBC==1 .OR. M%LBC==2)              M%HS(0,JJ,KK)      =-M%HS(1,JJ,KK)      + 2._EB*M%BXS(JJ,KK)
-               IF (M%LBC==1 .OR. M%LBC==4 .OR. M%LBC==5) M%HS(M%IBP1,JJ,KK) =-M%HS(M%IBAR,JJ,KK) + 2._EB*M%BXF(JJ,KK)
-               IF (M%LBC==5 .OR. M%LBC==6)              M%HS(0,JJ,KK)      = M%HS(1,JJ,KK)
-               IF (M%LBC==0) THEN
-                  M%HS(0,JJ,KK)      = M%HS(M%IBAR,JJ,KK)
-                  M%HS(M%IBP1,JJ,KK) = M%HS(1,JJ,KK)
-               ENDIF
-            ENDDO
+      CASE (GLMAT_FLAG,UGLMAT_FLAG)
+         CALL GLMAT_SOLVER(T,DT)
+         CALL MESH_EXCHANGE(5)
+         CALL COPY_H_OMESH_TO_MESH
+      CASE (ULMAT_FLAG)
+         IF (TUNNEL_PRECONDITIONER) CALL TUNNEL_POISSON_SOLVER
+         DO NM=LOWER_MESH_INDEX,UPPER_MESH_INDEX
+            CALL ULMAT_SOLVER(NM,T,DT)
          ENDDO
-
-         ! Z 方向
-         DO JJ = 1, M%JBAR
-            DO II = 1, M%IBAR
-               IF (M%NBC==3 .OR. M%NBC==4)              M%HS(II,JJ,0)      = M%HS(II,JJ,1)      - M%DZETA*M%BZS(II,JJ)
-               IF (M%NBC==3 .OR. M%NBC==2)              M%HS(II,JJ,M%KBP1) = M%HS(II,JJ,M%KBAR) + M%DZETA*M%BZF(II,JJ)
-               IF (M%NBC==1 .OR. M%NBC==2)              M%HS(II,JJ,0)      =-M%HS(II,JJ,1)      + 2._EB*M%BZS(II,JJ)
-               IF (M%NBC==1 .OR. M%NBC==4)              M%HS(II,JJ,M%KBP1) =-M%HS(II,JJ,M%KBAR) + 2._EB*M%BZF(II,JJ)
-               IF (M%NBC==0) THEN
-                  M%HS(II,JJ,0)      = M%HS(II,JJ,M%KBAR)
-                  M%HS(II,JJ,M%KBP1) = M%HS(II,JJ,1)
-               ENDIF
-            ENDDO
-         ENDDO
-
-         ! Y 方向
-         DO KK = 1, M%KBAR
-            DO II = 1, M%IBAR
-               IF (M%MBC==3 .OR. M%MBC==4)              M%HS(II,0,KK)      = M%HS(II,1,KK)      - M%RDY(1)*M%BYS(II,KK)
-               IF (M%MBC==3 .OR. M%MBC==2 .OR. M%MBC==6) M%HS(II,M%JBP1,KK) = M%HS(II,M%JBAR,KK) + M%RDY(M%JBAR)*M%BYF(II,KK)
-               IF (M%MBC==1 .OR. M%MBC==2)              M%HS(II,0,KK)      =-M%HS(II,1,KK)      + 2._EB*M%BYS(II,KK)
-               IF (M%MBC==1 .OR. M%MBC==4 .OR. M%MBC==5) M%HS(II,M%JBP1,KK) =-M%HS(II,M%JBAR,KK) + 2._EB*M%BYF(II,KK)
-               IF (M%MBC==5 .OR. M%MBC==6)              M%HS(II,0,KK)      = M%HS(II,1,KK)
-               IF (M%MBC==0) THEN
-                  M%HS(II,0,KK)      = M%HS(II,M%JBAR,KK)
-                  M%HS(II,M%JBP1,KK) = M%HS(II,1,KK)
-               ENDIF
-            ENDDO
-         ENDDO
-      ENDDO
-
-      IF (LEVEL_SET_MODE/=1) CALL MESH_EXCHANGE(5)
-      USED_CNN = .TRUE.
-
-      ! 直接跳出压力迭代循环，不再调用传统求解器
-      EXIT PRESSURE_ITERATION_LOOP
-   END IF
-
-   ! ====================================================================
-   ! 2. 传统压力求解器（仅在 CNN 未接管时执行）
-   ! ====================================================================
-   IF (.NOT. USED_CNN) THEN
-      SELECT CASE(PRES_FLAG)
-         CASE (FFT_FLAG)
-            IF (TUNNEL_PRECONDITIONER) CALL TUNNEL_POISSON_SOLVER
-            DO NM=LOWER_MESH_INDEX,UPPER_MESH_INDEX
-               CALL PRESSURE_SOLVER_FFT(NM)
-            ENDDO
-         CASE (GLMAT_FLAG,UGLMAT_FLAG)
-            CALL GLMAT_SOLVER(T,DT)
-            CALL MESH_EXCHANGE(5)
-            CALL COPY_H_OMESH_TO_MESH
-         CASE (ULMAT_FLAG)
-            IF (TUNNEL_PRECONDITIONER) CALL TUNNEL_POISSON_SOLVER
-            DO NM=LOWER_MESH_INDEX,UPPER_MESH_INDEX
-               CALL ULMAT_SOLVER(NM,T,DT)
-            ENDDO
-      END SELECT
-   END IF
+   END SELECT
 
    ! Check the residuals of the Poisson solution
    DO NM=LOWER_MESH_INDEX,UPPER_MESH_INDEX
@@ -1650,13 +1459,14 @@ PRESSURE_ITERATION_LOOP: DO
    ENDDO
 
    IF (.NOT.ITERATE_PRESSURE) EXIT PRESSURE_ITERATION_LOOP
-
+! Exchange both H or HS and FVX, FVY, FVZ and then estimate values of U, V, W (US, VS, WS) at next time step.
    CALL MESH_EXCHANGE(5)
 
    DO NM=LOWER_MESH_INDEX,UPPER_MESH_INDEX
       CALL COMPUTE_VELOCITY_ERROR(DT,NM)
       IF (CC_IBM) CALL CC_COMPUTE_VELOCITY_ERROR(DT,NM) 
    ENDDO
+ ! Make all MPI processes aware of the maximum velocity error to decide if another pressure iteration is needed.
 
    IF (N_MPI_PROCESSES>1) THEN
       TNOW = CURRENT_TIME()
@@ -1683,71 +1493,13 @@ PRESSURE_ITERATION_LOOP: DO
          NM_MAX_P,',',PRESSURE_ERROR_MAX_LOC(1,NM_MAX_P),',',PRESSURE_ERROR_MAX_LOC(2,NM_MAX_P),',',&
          PRESSURE_ERROR_MAX_LOC(3,NM_MAX_P),',',MAXVAL(PRESSURE_ERROR_MAX)
    ENDIF
-
-   ! ====================================================================
-   ! 动态回退与恢复评估（仅在非完全替代模式下有意义，保留以兼容传统模式）
-   ! ====================================================================
-   IF (CORRECTOR .AND. T >= 50.0_EB .AND. T <= 60.0_EB) THEN
-      IF (PRESSURE_ITERATIONS == 1) THEN
-         IF (CNN_ACTIVE .AND. USED_CNN) THEN
-            IF (MAXVAL(PRESSURE_ERROR_MAX) > CNN_RES_TOL) THEN
-               CNN_ACTIVE = .FALSE.
-               CNN_COOLDOWN = 50
-               IF (MY_RANK == 0) WRITE(*,*) '>>> [Safe-Net] CNN residual too high (', &
-                                            MAXVAL(PRESSURE_ERROR_MAX), '), Fallback triggered for 50 steps.'
-               DO NM = LOWER_MESH_INDEX, UPPER_MESH_INDEX
-                  M => MESHES(NM)
-                  M%HS(0:M%IBP1, 0:M%JBP1, 0:M%KBP1) = M%H(0:M%IBP1, 0:M%JBP1, 0:M%KBP1)
-               END DO
-            END IF
-         ELSE IF (.NOT. CNN_ACTIVE) THEN
-            CNN_COOLDOWN = CNN_COOLDOWN - 1
-            IF (CNN_COOLDOWN <= 0) THEN
-               CNN_ACTIVE = .TRUE.
-               IF (MY_RANK == 0) WRITE(*,*) '>>> [Safe-Net] Cooldown finished. CNN Reactivated.'
-            END IF
-         END IF
-      END IF
-   END IF
-
-   ! ====================================================================
-   ! 输出 CNN 测试 CSV
-   ! ====================================================================
-   IF (MY_RANK == 0) THEN
-      IF (.NOT. ERROR_CSV_INITIALIZED) THEN
-         ERROR_CSV_FILE = TRIM(CHID) // '_residual_log.csv'
-         ERROR_CSV_UNIT = GET_FILE_NUMBER()
-         OPEN(UNIT=ERROR_CSV_UNIT, FILE=TRIM(ERROR_CSV_FILE), STATUS='REPLACE', FORM='FORMATTED', IOSTAT=IERR_CSV)
-         
-         IF (IERR_CSV == 0) THEN
-            WRITE(ERROR_CSV_UNIT, '(A)') 'Time,TimeStep,Is_Corrector,Iteration,Total_Iterations,Max_Velocity_Error,Max_Pressure_Error,CNN_Active'
-            ERROR_CSV_INITIALIZED = .TRUE.
-            WRITE(*,*) '>>> [Success] CNN Residual CSV log initialized on Unit ', ERROR_CSV_UNIT, ': ', TRIM(ERROR_CSV_FILE)
-         ELSE
-            WRITE(*,*) '>>> [FAILED] Could not create CSV! IOSTAT = ', IERR_CSV
-            WRITE(LU_ERR,*) 'ERROR: Cannot open Residual Log CSV file ', TRIM(ERROR_CSV_FILE), ' IOSTAT=', IERR_CSV
-         END IF
-      END IF
-
-      IF (ERROR_CSV_INITIALIZED) THEN
-         WRITE(ERROR_CSV_UNIT, '(ES15.7,A,I7,A,I1,A,I7,A,I7,A,ES15.7,A,ES15.7,A,I1)') &
-            T, ',', ICYC, ',', MERGE(1, 0, CORRECTOR), ',', &
-            PRESSURE_ITERATIONS, ',', TOTAL_PRESSURE_ITERATIONS, ',', &
-            MAXVAL(VELOCITY_ERROR_MAX), ',', MAXVAL(PRESSURE_ERROR_MAX), ',', &
-            MERGE(1, 0, USED_CNN)
-         FLUSH(ERROR_CSV_UNIT)
-      END IF
-   END IF
-
-   ! ====================================================================
-   ! 收敛判断与退出条件
-   ! ====================================================================
+   ! If the VELOCITY_TOLERANCE is satisfied or max/min iterations are hit, exit the loop.
    IF (MAXVAL(PRESSURE_ERROR_MAX)<PRESSURE_TOLERANCE) ITERATE_BAROCLINIC_TERM = .FALSE.
 
    IF ((MAXVAL(PRESSURE_ERROR_MAX)<PRESSURE_TOLERANCE .AND. &
         MAXVAL(VELOCITY_ERROR_MAX)<VELOCITY_TOLERANCE) .OR. PRESSURE_ITERATIONS>=MAX_PRESSURE_ITERATIONS) &
       EXIT PRESSURE_ITERATION_LOOP
-
+   ! Exit the iteration loop if satisfactory progress is not achieved
    IF (SUSPEND_PRESSURE_ITERATIONS .AND. ICYC>10) THEN
       IF (PRESSURE_ITERATIONS>3 .AND.  &
          MAXVAL(VELOCITY_ERROR_MAX)>ITERATION_SUSPEND_FACTOR*VELOCITY_ERROR_MAX_OLD .AND. &
@@ -1758,74 +1510,12 @@ PRESSURE_ITERATION_LOOP: DO
 
 ENDDO PRESSURE_ITERATION_LOOP
 
-! ----- 迭代结束后，保存最终校正的物理收敛压力 -----
-IF (WRITE_DATA) THEN
-   DO NM = LOWER_MESH_INDEX, UPPER_MESH_INDEX
-      IF (MY_RANK == PROCESS(NM)) THEN
-         M => MESHES(NM)
-         IF (PREDICTOR) THEN
-            SAVE_PNEW(1:M%IBAR, 1:M%JBAR, 1:M%KBAR) = M%H(1:M%IBAR, 1:M%JBAR, 1:M%KBAR)
-         ELSE
-            SAVE_PNEW(1:M%IBAR, 1:M%JBAR, 1:M%KBAR) = M%HS(1:M%IBAR, 1:M%JBAR, 1:M%KBAR)
-         ENDIF
-      ENDIF
+! --- 收集训练数据 (仅添加此接口) ---
+IF (CORRECTOR) THEN
+   DO NM=LOWER_MESH_INDEX,UPPER_MESH_INDEX
+      CALL EXPORT_CNN_DATA(NM)
    ENDDO
 ENDIF
-
-! ----- 写出 CSV 与 BINARY 训练数据 -----
-IF (WRITE_DATA) THEN
-   DO NM = LOWER_MESH_INDEX, UPPER_MESH_INDEX
-      M => MESHES(NM)
-
-      CSV_FILE = ''
-      BIN_FILE = ''
-      IERR = 0
-
-      WRITE(CSV_FILE, '(A,A,I0,A,I6.6,A)') TRIM(CHID), '_pressure_m', NM, '_step', ICYC, '.csv'
-      WRITE(BIN_FILE, '(A,A,I0,A,I6.6,A)') TRIM(CHID), '_pressure_m', NM, '_step', ICYC, '.bin'
-
-      IO_UNIT = -1
-      OPEN(NEWUNIT=IO_UNIT, FILE=TRIM(CSV_FILE), STATUS='REPLACE', FORM='FORMATTED', IOSTAT=IERR)
-      IF (IERR == 0) THEN
-         WRITE(IO_UNIT, '(A)') 'I,J,K,X,Y,Z,Div,RHS,P_old,P_new'
-         DO KK = 1, M%KBAR
-            DO JJ = 1, M%JBAR
-               DO II = 1, M%IBAR
-                  IF (M%CELL(M%CELL_INDEX(II,JJ,KK))%SOLID) CYCLE
-                  WRITE(IO_UNIT, '(I0,",",I0,",",I0,",",7(ES15.7,:,","))') &
-                     II, JJ, KK, M%XC(II), M%YC(JJ), M%ZC(KK),     &
-                     SAVE_DIV(II,JJ,KK), SAVE_RHS(II,JJ,KK),        &
-                     SAVE_POLD(II,JJ,KK), SAVE_PNEW(II,JJ,KK)
-               ENDDO
-            ENDDO
-         ENDDO
-         CLOSE(IO_UNIT)
-      ELSE
-         WRITE(LU_ERR,*) 'ERROR: Cannot open CSV file ', TRIM(CSV_FILE), ' IOSTAT=', IERR
-      END IF
-
-      IERR = 0
-      IO_UNIT = -1
-      OPEN(NEWUNIT=IO_UNIT, FILE=TRIM(BIN_FILE), STATUS='REPLACE', FORM='UNFORMATTED', ACCESS='STREAM', IOSTAT=IERR)
-      IF (IERR == 0) THEN
-         NFEAT = 4_INT32
-         WRITE(IO_UNIT) NFEAT
-         WRITE(IO_UNIT) M%IBAR, M%JBAR, M%KBAR
-         WRITE(IO_UNIT) SAVE_DIV
-         WRITE(IO_UNIT) SAVE_RHS
-         WRITE(IO_UNIT) SAVE_POLD
-         WRITE(IO_UNIT) SAVE_PNEW
-         CLOSE(IO_UNIT)
-      ELSE
-         WRITE(LU_ERR,*) 'ERROR: Cannot open binary file ', TRIM(BIN_FILE), ' IOSTAT=', IERR
-      END IF
-   ENDDO
-
-   IF (ALLOCATED(SAVE_DIV)) DEALLOCATE(SAVE_DIV)
-   IF (ALLOCATED(SAVE_RHS)) DEALLOCATE(SAVE_RHS)
-   IF (ALLOCATED(SAVE_POLD)) DEALLOCATE(SAVE_POLD)
-   IF (ALLOCATED(SAVE_PNEW)) DEALLOCATE(SAVE_PNEW)
-END IF
 
 END SUBROUTINE PRESSURE_ITERATION_SCHEME
 

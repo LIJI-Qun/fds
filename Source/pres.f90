@@ -1,7 +1,22 @@
+MODULE CNN_INTERFACE
+  USE, INTRINSIC :: ISO_C_BINDING, ONLY: C_FLOAT, C_INT
+  IMPLICIT NONE
+  INTERFACE
+    SUBROUTINE cnn_initialize() BIND(C, name="cnn_initialize")
+    END SUBROUTINE
+    SUBROUTINE cnn_predict(input, output, B, C, H, W) BIND(C, name="cnn_predict")
+      IMPORT :: C_FLOAT, C_INT
+      REAL(C_FLOAT), DIMENSION(*) :: input, output
+      INTEGER(C_INT), VALUE :: B, C, H, W
+    END SUBROUTINE
+  END INTERFACE
+END MODULE CNN_INTERFACE
+
 MODULE PRES
-
+USE CNN_INTERFACE                      
+USE, INTRINSIC :: ISO_C_BINDING, ONLY: C_FLOAT, C_INT
+USE, INTRINSIC :: ISO_FORTRAN_ENV, ONLY: INT32
 ! Find the perturbation pressure by solving Poisson's Equation
-
 USE PRECISION_PARAMETERS
 USE MESH_VARIABLES
 
@@ -9,8 +24,17 @@ IMPLICIT NONE (TYPE,EXTERNAL)
 PRIVATE
 
 PUBLIC PRESSURE_SOLVER_COMPUTE_RHS,PRESSURE_SOLVER_FFT,TUNNEL_POISSON_SOLVER,PRESSURE_SOLVER_CHECK_RESIDUALS, &
-       COMPUTE_VELOCITY_ERROR
+       COMPUTE_VELOCITY_ERROR, EXPORT_CNN_DATA   ! <--- 把 EXPORT_CNN_DATA 写进同一个 PUBLIC 里
 
+! ================== CNN 全局状态变量 ==================
+LOGICAL, SAVE :: CNN_ACTIVE = .TRUE.
+INTEGER, SAVE :: CNN_COOLDOWN = 0
+REAL(EB), PARAMETER :: CNN_RES_TOL = 0.5_EB
+REAL(C_FLOAT), ALLOCATABLE, SAVE, TARGET :: CNN_IN(:), CNN_OUT(:)
+INTEGER(C_INT), SAVE :: CNN_B, CNN_C, CNN_H, CNN_W
+LOGICAL, SAVE :: ERROR_CSV_INITIALIZED = .FALSE.
+INTEGER, SAVE :: ERROR_CSV_UNIT
+! ======================================================
 CONTAINS
 
 SUBROUTINE PRESSURE_SOLVER_COMPUTE_RHS(T,DT,NM)
@@ -316,6 +340,169 @@ T_USED(5)=T_USED(5)+CURRENT_TIME()-TNOW
 END SUBROUTINE PRESSURE_SOLVER_COMPUTE_RHS
 
 
+SUBROUTINE PRESSURE_SOLVER_CNN(NM, HP)
+   USE MESH_POINTERS
+   INTEGER, INTENT(IN) :: NM
+   REAL(EB), POINTER, DIMENSION(:,:,:) :: HP
+   INTEGER :: II, JJ, KK, IDX
+   REAL(EB) :: DIV_VAL, P_OLD_VAL
+   INTEGER :: REQ_SIZE_IN, REQ_SIZE_OUT
+
+   ! 1. 强制当前线程的网格指针指向 NM，确保 IBAR, KBAR, BXS 等变量正确
+   CALL POINT_TO_MESH(NM)
+
+   CNN_B = 1
+   CNN_C = 6
+   CNN_H = KBAR
+   CNN_W = IBAR
+
+   ! 2. 计算当前网格需要的 1D 数组长度
+   REQ_SIZE_IN  = CNN_B * CNN_C * CNN_H * CNN_W
+   REQ_SIZE_OUT = CNN_B * 1 * CNN_H * CNN_W
+
+   ! 3. 安全的内存重分配机制 (完美适应 FDS 多网格不同尺寸)
+   IF (ALLOCATED(CNN_IN)) THEN
+      IF (SIZE(CNN_IN) /= REQ_SIZE_IN) THEN
+         DEALLOCATE(CNN_IN)
+         DEALLOCATE(CNN_OUT)
+      END IF
+   END IF
+
+   IF (.NOT. ALLOCATED(CNN_IN)) THEN
+      ALLOCATE(CNN_IN(REQ_SIZE_IN))
+      ALLOCATE(CNN_OUT(REQ_SIZE_OUT))
+   END IF
+
+   ! 4. 按 JJ 切片预测
+   DO JJ = 1, JBAR
+      DO KK = 1, KBAR
+         DO II = 1, IBAR
+            DIV_VAL   = D(II,JJ,KK)
+            P_OLD_VAL = HP(II,JJ,KK) ! HP 即当前的压力场
+
+            IDX = (KK - 1) * IBAR + (II - 1)
+            CNN_IN(0 * CNN_H * CNN_W + IDX + 1) = REAL(XC(II), C_FLOAT)
+            CNN_IN(1 * CNN_H * CNN_W + IDX + 1) = REAL(YC(JJ), C_FLOAT)
+            CNN_IN(2 * CNN_H * CNN_W + IDX + 1) = REAL(ZC(KK), C_FLOAT)
+            CNN_IN(3 * CNN_H * CNN_W + IDX + 1) = REAL(DIV_VAL, C_FLOAT)
+            CNN_IN(4 * CNN_H * CNN_W + IDX + 1) = REAL(PRHS(II,JJ,KK), C_FLOAT)
+            CNN_IN(5 * CNN_H * CNN_W + IDX + 1) = REAL(P_OLD_VAL, C_FLOAT)
+         ENDDO
+      ENDDO
+
+      CALL cnn_predict(CNN_IN, CNN_OUT, CNN_B, CNN_C, CNN_H, CNN_W)
+
+      DO KK = 1, KBAR
+         DO II = 1, IBAR
+            IDX = (KK - 1) * IBAR + (II - 1)
+            HP(II,JJ,KK) = REAL(CNN_OUT(IDX + 1), EB)
+         ENDDO
+      ENDDO
+   ENDDO
+
+   ! 5. 应用外部幽灵网格边界条件 (等同于 FDS FFT 内部的逻辑)
+   ! X 方向
+   DO KK = 1, KBAR
+      DO JJ = 1, JBAR
+         IF (LBC==3 .OR. LBC==4)              HP(0,JJ,KK)    = HP(1,JJ,KK)      - DXI*BXS(JJ,KK)
+         IF (LBC==3 .OR. LBC==2 .OR. LBC==6)  HP(IBP1,JJ,KK) = HP(IBAR,JJ,KK)   + DXI*BXF(JJ,KK)
+         IF (LBC==1 .OR. LBC==2)              HP(0,JJ,KK)    =-HP(1,JJ,KK)      + 2._EB*BXS(JJ,KK)
+         IF (LBC==1 .OR. LBC==4 .OR. LBC==5)  HP(IBP1,JJ,KK) =-HP(IBAR,JJ,KK)   + 2._EB*BXF(JJ,KK)
+         IF (LBC==5 .OR. LBC==6)              HP(0,JJ,KK)    = HP(1,JJ,KK)
+         IF (LBC==0) THEN
+            HP(0,JJ,KK)    = HP(IBAR,JJ,KK)
+            HP(IBP1,JJ,KK) = HP(1,JJ,KK)
+         ENDIF
+      ENDDO
+   ENDDO
+
+   ! Y 方向
+   DO KK = 1, KBAR
+      DO II = 1, IBAR
+         IF (MBC==3 .OR. MBC==4)              HP(II,0,KK)    = HP(II,1,KK)      - DETA*BYS(II,KK)
+         IF (MBC==3 .OR. MBC==2 .OR. MBC==6)  HP(II,JBP1,KK) = HP(II,JBAR,KK)   + DETA*BYF(II,KK)
+         IF (MBC==1 .OR. MBC==2)              HP(II,0,KK)    =-HP(II,1,KK)      + 2._EB*BYS(II,KK)
+         IF (MBC==1 .OR. MBC==4 .OR. MBC==5)  HP(II,JBP1,KK) =-HP(II,JBAR,KK)   + 2._EB*BYF(II,KK)
+         IF (MBC==5 .OR. MBC==6)              HP(II,0,KK)    = HP(II,1,KK)
+         IF (MBC==0) THEN
+            HP(II,0,KK)    = HP(II,JBAR,KK)
+            HP(II,JBP1,KK) = HP(II,1,KK)
+         ENDIF
+      ENDDO
+   ENDDO
+
+   ! Z 方向
+   DO JJ = 1, JBAR
+      DO II = 1, IBAR
+         IF (NBC==3 .OR. NBC==4)              HP(II,JJ,0)    = HP(II,JJ,1)      - DZETA*BZS(II,JJ)
+         IF (NBC==3 .OR. NBC==2)              HP(II,JJ,KBP1) = HP(II,JJ,KBAR)   + DZETA*BZF(II,JJ)
+         IF (NBC==1 .OR. NBC==2)              HP(II,JJ,0)    =-HP(II,JJ,1)      + 2._EB*BZS(II,JJ)
+         IF (NBC==1 .OR. NBC==4)              HP(II,JJ,KBP1) =-HP(II,JJ,KBAR)   + 2._EB*BZF(II,JJ)
+         IF (NBC==0) THEN
+            HP(II,JJ,0)    = HP(II,JJ,KBAR)
+            HP(II,JJ,KBP1) = HP(II,JJ,1)
+         ENDIF
+      ENDDO
+   ENDDO
+
+END SUBROUTINE PRESSURE_SOLVER_CNN
+
+
+SUBROUTINE EXPORT_CNN_DATA(NM)
+   USE MESH_POINTERS
+   USE COMP_FUNCTIONS, ONLY: GET_FILE_NUMBER, CURRENT_TIME
+   USE GLOBAL_CONSTANTS
+   INTEGER, INTENT(IN) :: NM
+   INTEGER :: II, JJ, KK, IO_UNIT, IERR
+   CHARACTER(255) :: CSV_FILE, BIN_FILE
+   INTEGER(INT32) :: NFEAT = 4_INT32
+   REAL(EB) :: TNOW
+
+   TNOW = CURRENT_TIME()
+
+   ! 注意这里逻辑应该是 OR，如果在 50 到 60 之外就 RETURN
+   IF (TNOW < 50.0_EB .AND. TNOW > 60.0_EB) RETURN 
+   IF (MOD(ICYC, 100) /= 0) RETURN
+   
+   CALL POINT_TO_MESH(NM)
+
+   WRITE(CSV_FILE, '(A,A,I0,A,I6.6,A)') TRIM(CHID), '_pressure_m', NM, '_step', ICYC, '.csv'
+   WRITE(BIN_FILE, '(A,A,I0,A,I6.6,A)') TRIM(CHID), '_pressure_m', NM, '_step', ICYC, '.bin'
+
+   ! 写出 CSV
+   IO_UNIT = GET_FILE_NUMBER()
+   OPEN(UNIT=IO_UNIT, FILE=TRIM(CSV_FILE), STATUS='REPLACE', FORM='FORMATTED', IOSTAT=IERR)
+   IF (IERR == 0) THEN
+      WRITE(IO_UNIT, '(A)') 'I,J,K,X,Y,Z,Div,RHS,P_old,P_new'
+      DO KK = 1, KBAR
+         DO JJ = 1, JBAR
+            DO II = 1, IBAR
+               IF (CELL(CELL_INDEX(II,JJ,KK))%SOLID) CYCLE
+               WRITE(IO_UNIT, '(I0,",",I0,",",I0,",",7(ES15.7,:,","))') &
+                  II, JJ, KK, XC(II), YC(JJ), ZC(KK), &
+                  D(II,JJ,KK), PRHS(II,JJ,KK), H(II,JJ,KK), HS(II,JJ,KK)
+            ENDDO
+         ENDDO
+      ENDDO
+      CLOSE(IO_UNIT)
+   END IF
+
+   ! 写出 BINARY
+   ! IO_UNIT = GET_FILE_NUMBER()
+   ! OPEN(UNIT=IO_UNIT, FILE=TRIM(BIN_FILE), STATUS='REPLACE', FORM='UNFORMATTED', ACCESS='STREAM', IOSTAT=IERR)
+   ! IF (IERR == 0) THEN
+   !    WRITE(IO_UNIT) NFEAT
+   !    WRITE(IO_UNIT) IBAR, JBAR, KBAR
+   !    WRITE(IO_UNIT) D(1:IBAR, 1:JBAR, 1:KBAR)
+   !    WRITE(IO_UNIT) PRHS(1:IBAR, 1:JBAR, 1:KBAR)
+   !    WRITE(IO_UNIT) H(1:IBAR, 1:JBAR, 1:KBAR)
+   !    WRITE(IO_UNIT) HS(1:IBAR, 1:JBAR, 1:KBAR)
+   !    CLOSE(IO_UNIT)
+   ! END IF
+END SUBROUTINE EXPORT_CNN_DATA
+
+
+
 SUBROUTINE PRESSURE_SOLVER_FFT(NM)
 
 USE MESH_POINTERS
@@ -338,6 +525,17 @@ IF (PREDICTOR) THEN
    HP => H
 ELSE
    HP => HS
+ENDIF
+
+! ================== CNN 拦截点 ==================
+! 在指定时间段内，且 CNN 处于激活状态时，完全替代 FFT 求解
+! 注意：这里将原先报错的 T 修改为了 TNOW
+IF (CORRECTOR .AND. TNOW >= 50.0_EB .AND. TNOW <= 60.0_EB .AND. CNN_ACTIVE) THEN
+   IF (PRESSURE_ITERATIONS == 1) THEN
+      CALL PRESSURE_SOLVER_CNN(NM, HP)
+      T_USED(5)=T_USED(5)+CURRENT_TIME()-TNOW
+      RETURN  ! 直接跳出传统求解与幽灵网格边界，因为 CNN 里已经做了
+   ENDIF
 ENDIF
 
 ! Call the Poisson solver
@@ -674,7 +872,7 @@ END SUBROUTINE TUNNEL_POISSON_SOLVER
 SUBROUTINE PRESSURE_SOLVER_CHECK_RESIDUALS(NM)
 
 USE MESH_POINTERS
-USE COMP_FUNCTIONS, ONLY: CURRENT_TIME
+USE COMP_FUNCTIONS, ONLY: CURRENT_TIME, GET_FILE_NUMBER
 USE GLOBAL_CONSTANTS
 
 INTEGER, INTENT(IN) :: NM
@@ -769,6 +967,42 @@ IF (ITERATE_BAROCLINIC_TERM) THEN
    IF (STORE_PRESSURE_POISSON_RESIDUAL) PP_RESIDUAL(1:IBAR,1:JBAR,1:KBAR)=RESIDUAL(1:IBAR,1:JBAR,1:KBAR)
 
 ENDIF
+
+! ================== Safe-Net 回退与日志 ==================
+IF (CORRECTOR .AND. TNOW >= 50.0_EB .AND. TNOW <= 60.0_EB) THEN
+   IF (PRESSURE_ITERATIONS == 1) THEN
+      IF (CNN_ACTIVE) THEN
+         IF (PRESSURE_ERROR_MAX(NM) > CNN_RES_TOL) THEN
+            CNN_ACTIVE = .FALSE.
+            CNN_COOLDOWN = 50
+            IF (MY_RANK == 0) WRITE(*,*) '>>> [Safe-Net] CNN residual (', &
+                                         PRESSURE_ERROR_MAX(NM), '), Fallback triggered.'
+            ! 恢复旧的压力场，触发下一次标准迭代
+            HP(0:IBP1, 0:JBP1, 0:KBP1) = H(0:IBP1, 0:JBP1, 0:KBP1)
+         END IF
+      ELSE
+         CNN_COOLDOWN = CNN_COOLDOWN - 1
+         IF (CNN_COOLDOWN <= 0) THEN
+            CNN_ACTIVE = .TRUE.
+            IF (MY_RANK == 0) WRITE(*,*) '>>> [Safe-Net] Cooldown finished. CNN Reactivated.'
+         END IF
+      END IF
+   END IF
+END IF
+
+IF (MY_RANK == 0 .AND. CORRECTOR) THEN
+   IF (.NOT. ERROR_CSV_INITIALIZED) THEN
+      ERROR_CSV_UNIT = GET_FILE_NUMBER()
+      OPEN(UNIT=ERROR_CSV_UNIT, FILE=TRIM(CHID)//'_residual_log.csv', STATUS='REPLACE', FORM='FORMATTED')
+      WRITE(ERROR_CSV_UNIT, '(A)') 'Time,TimeStep,Iteration,Total_Iterations,Max_Velocity_Error,Max_Pressure_Error,CNN_Active'
+      ERROR_CSV_INITIALIZED = .TRUE.
+   END IF
+   WRITE(ERROR_CSV_UNIT, '(ES15.7,A,I7,A,I7,A,I7,A,ES15.7,A,ES15.7,A,I1)') &
+      TNOW, ',', ICYC, ',', PRESSURE_ITERATIONS, ',', TOTAL_PRESSURE_ITERATIONS, ',', &
+      MAXVAL(VELOCITY_ERROR_MAX), ',', MAXVAL(PRESSURE_ERROR_MAX), ',', MERGE(1, 0, CNN_ACTIVE)
+   FLUSH(ERROR_CSV_UNIT)
+END IF
+! =========================================================
 
 T_USED(5)=T_USED(5)+CURRENT_TIME()-TNOW
 END SUBROUTINE PRESSURE_SOLVER_CHECK_RESIDUALS
