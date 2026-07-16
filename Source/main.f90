@@ -1418,16 +1418,21 @@ IF(CC_IBM) THEN
    ENDDO
 ENDIF
 
-! ----- 触发条件（建议每1步都写，方便测试）-----
+! ---> 触发条件（稳态时间窗口限制 40s - 60s）<---
 WRITE_DATA = .FALSE.
 IF (CORRECTOR) THEN
-   WRITE(*,*) 'In corrector step, ICYC=', ICYC
-   IF (ICYC==1 .OR. MOD(ICYC,20)==0 .OR. (T+DT)>=T_END) WRITE_DATA = .TRUE.   
-   ! 测试时可每步输出，正式可改为每 N 步
-ENDIF
-
+   ! 增加物理时间限制：T 大于等于 40s 且 小于等于 60s
+   IF (ICYC==1 .OR. (T+DT)>=T_END) WRITE_DATA = .TRUE.  
    
-   ! ----- 分配并保存旧数据 (POLD, DIV) -----
+   IF (T >=50.0_EB .AND. T <= 60.0_EB) THEN
+      IF (MOD(ICYC,100)==0) WRITE_DATA = .TRUE. 
+      WRITE(*,*) ' Exporting training data at T=', T, 's, ICYC=', ICYC  
+   ENDIF
+
+ENDIF
+! --------------------------------------------------------
+   
+! ----- 分配并保存旧数据 (POLD, DIV) -----
 IF (WRITE_DATA) THEN
    IF (.NOT. ALLOCATED(EXPORT_DATA)) ALLOCATE(EXPORT_DATA(NMESHES))
    
@@ -1487,7 +1492,7 @@ PRESSURE_ITERATION_LOOP: DO
       IF (CC_IBM) CALL CC_NO_FLUX(DT,NM,.FALSE.) ! set WALL_WORK1 to 0 in cells inside geometries.
       IF (PRESSURE_ITERATIONS==1) MESHES(NM)%WALL_WORK1 = 0._EB
       CALL PRESSURE_SOLVER_COMPUTE_RHS(T,DT,NM)
-          ! ---> 【拦截动作】只在内存中保存切片，不落盘
+         ! ---> 内存中保存切片
          ! >>> 保存 RHS 的代码 <<<
       IF (WRITE_DATA) THEN
          M => MESHES(NM)
@@ -1607,15 +1612,17 @@ IF (WRITE_DATA) THEN
       BIN_FILE = ''
       IERR = 0
 
-      WRITE(CSV_FILE, '(A,A,I0,A,I6.6,A)') TRIM(CHID), '_pressure_m', NM, '_step', ICYC, '.csv'
-      WRITE(BIN_FILE, '(A,A,I0,A,I6.6,A)') TRIM(CHID), '_pressure_m', NM, '_step', ICYC, '.bin'
+      WRITE(CSV_FILE, '(A,A,I0,A,I0,A)') TRIM(CHID), '_pressure_m', NM, '_step', ICYC, '.csv'
+         ! 如果要保留固定长度以便排序，可用：
+         ! WRITE(CSV_FILE, '(A,A,I0,A,I8.8,A)') TRIM(CHID), '_pressure_m', NM, '_step', ICYC, '.csv'
+      WRITE(BIN_FILE, '(A,A,I0,A,I0,A)') TRIM(CHID), '_pressure_m', NM, '_step', ICYC, '.bin'
 
       ! 3. 写 CSV
       IO_UNIT = -1
       OPEN(NEWUNIT=IO_UNIT, FILE=TRIM(CSV_FILE), STATUS='REPLACE', FORM='FORMATTED', IOSTAT=IERR)
       IF (IERR == 0) THEN
          WRITE(IO_UNIT, '(A)') 'I,J,K,X,Y,Z,Div,RHS,P_old,P_new'
-         ! Fortran 是列主序，最内层循环应该是 I，然后 J，最外层 K。你的循环顺序写得很完美！
+         ! Fortran 是列主序，最内层循环应该是 I，然后 J，最外层 K。
          DO KK = 1, M%KBAR
             DO JJ = 1, M%JBAR
                DO II = 1, M%IBAR
@@ -1633,22 +1640,22 @@ IF (WRITE_DATA) THEN
       END IF
 
       ! 4. 写二进制
-      IERR = 0
-      IO_UNIT = -1
-      OPEN(NEWUNIT=IO_UNIT, FILE=TRIM(BIN_FILE), STATUS='REPLACE', FORM='UNFORMATTED', ACCESS='STREAM', IOSTAT=IERR)
-      IF (IERR == 0) THEN
-         NFEAT = 4_INT32
-         WRITE(IO_UNIT) NFEAT
-         WRITE(IO_UNIT) M%IBAR, M%JBAR, M%KBAR
-         ! 直接将 3D 张量以 Stream 形式冲入硬盘，极为高效
-         WRITE(IO_UNIT) EXPORT_DATA(NM)%DIV
-         WRITE(IO_UNIT) EXPORT_DATA(NM)%RHS
-         WRITE(IO_UNIT) EXPORT_DATA(NM)%POLD
-         WRITE(IO_UNIT) EXPORT_DATA(NM)%PNEW
-         CLOSE(IO_UNIT)
-      ELSE
-         WRITE(LU_ERR,*) 'ERROR: Cannot open binary file ', TRIM(BIN_FILE), ' IOSTAT=', IERR
-      END IF
+      ! IERR = 0
+      ! IO_UNIT = -1
+      ! OPEN(NEWUNIT=IO_UNIT, FILE=TRIM(BIN_FILE), STATUS='REPLACE', FORM='UNFORMATTED', ACCESS='STREAM', IOSTAT=IERR)
+      ! IF (IERR == 0) THEN
+      !    NFEAT = 4_INT32
+      !    WRITE(IO_UNIT) NFEAT
+      !    WRITE(IO_UNIT) M%IBAR, M%JBAR, M%KBAR
+      !    ! 直接将 3D 张量以 Stream 形式冲入硬盘，极为高效
+      !    WRITE(IO_UNIT) EXPORT_DATA(NM)%DIV
+      !    WRITE(IO_UNIT) EXPORT_DATA(NM)%RHS
+      !    WRITE(IO_UNIT) EXPORT_DATA(NM)%POLD
+      !    WRITE(IO_UNIT) EXPORT_DATA(NM)%PNEW
+      !    CLOSE(IO_UNIT)
+      ! ELSE
+      !    WRITE(LU_ERR,*) 'ERROR: Cannot open binary file ', TRIM(BIN_FILE), ' IOSTAT=', IERR
+      ! END IF
    ENDDO
    
    ! 写完后立即释放内存，保持低开销
