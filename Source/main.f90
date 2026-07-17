@@ -1384,9 +1384,10 @@ END SUBROUTINE MPI_INITIALIZATION_CHORES
 
 SUBROUTINE PRESSURE_ITERATION_SCHEME
 USE CC_SCALARS, ONLY : GET_LINKED_FV
-USE PRES, ONLY : EXPORT_CNN_DATA  !用于导出训练数据
+USE PRES, ONLY : EXPORT_CNN_DATA, PRESSURE_SOLVER_CNN, CNN_ACTIVE, CNN_COOLDOWN, CNN_RES_TOL
 REAL(EB) :: TNOW,VELOCITY_ERROR_MAX_OLD,PRESSURE_ERROR_MAX_OLD
 INTEGER :: NM_MAX_V,NM_MAX_P
+LOGICAL :: USED_CNN
 
 PRESSURE_ITERATIONS = 0
 IF (BAROCLINIC) THEN
@@ -1396,7 +1397,6 @@ ELSE
 ENDIF
 
 IF(CC_IBM) THEN
-   ! Here we need an exchange of F for linking:
    CALL MESH_EXCHANGE(5)
    DO NM=LOWER_MESH_INDEX,UPPER_MESH_INDEX
       CALL GET_LINKED_FV(NM,DO_BAROCLINIC=.FALSE.)
@@ -1407,9 +1407,6 @@ PRESSURE_ITERATION_LOOP: DO
 
    PRESSURE_ITERATIONS = PRESSURE_ITERATIONS + 1
    TOTAL_PRESSURE_ITERATIONS = TOTAL_PRESSURE_ITERATIONS + 1
-
-   ! The following loops and exchange always get executed the first pass through the PRESSURE_ITERATION_LOOP.
-   ! If we need to iterate the baroclinic torque term, the loop is executed each time.
 
    IF (ITERATE_BAROCLINIC_TERM .OR. PRESSURE_ITERATIONS==1) THEN
       DO NM=LOWER_MESH_INDEX,UPPER_MESH_INDEX
@@ -1423,30 +1420,46 @@ PRESSURE_ITERATION_LOOP: DO
    ENDIF
 
    ! Compute the right hand side (RHS) and boundary conditions
-   ! be zero the first time the pressure solver is called.
    DO NM=LOWER_MESH_INDEX,UPPER_MESH_INDEX
       CALL NO_FLUX(DT,NM)
       IF (CC_IBM) CALL CC_NO_FLUX(DT,NM,.FALSE.) 
       IF (PRESSURE_ITERATIONS==1) MESHES(NM)%WALL_WORK1 = 0._EB
       CALL PRESSURE_SOLVER_COMPUTE_RHS(T,DT,NM)
    ENDDO
-   ! Solve the Poission equation using either FFT or ULMAT, GLMAT, or UGLMAT
-   SELECT CASE(PRES_FLAG)
-      CASE (FFT_FLAG)
-         IF (TUNNEL_PRECONDITIONER) CALL TUNNEL_POISSON_SOLVER
-         DO NM=LOWER_MESH_INDEX,UPPER_MESH_INDEX
-            CALL PRESSURE_SOLVER_FFT(NM)
+
+   ! ==================== CNN 接管 ====================
+   USED_CNN = .FALSE.
+   IF (CORRECTOR .AND. PRESSURE_ITERATIONS == 1) THEN
+      ! 修复点：直接使用主程序原生的物理时间变量 T，坚决不能加 T = CURRENT_TIME() !
+      IF (T >= 50.0_EB .AND. T <= 60.0_EB .AND. CNN_ACTIVE) THEN
+         WRITE(*,*) '>>> CNN is being called at T=', T
+         DO NM = LOWER_MESH_INDEX, UPPER_MESH_INDEX
+            CALL PRESSURE_SOLVER_CNN(NM)   ! 直接预测校正步压力 HS
          ENDDO
-      CASE (GLMAT_FLAG,UGLMAT_FLAG)
-         CALL GLMAT_SOLVER(T,DT)
-         CALL MESH_EXCHANGE(5)
-         CALL COPY_H_OMESH_TO_MESH
-      CASE (ULMAT_FLAG)
-         IF (TUNNEL_PRECONDITIONER) CALL TUNNEL_POISSON_SOLVER
-         DO NM=LOWER_MESH_INDEX,UPPER_MESH_INDEX
-            CALL ULMAT_SOLVER(NM,T,DT)
-         ENDDO
-   END SELECT
+         CALL MESH_EXCHANGE(5)            ! 更新插值边界
+         USED_CNN = .TRUE.
+      ENDIF
+   ENDIF
+
+   ! ==================== 传统求解器 ====================
+   IF (.NOT. USED_CNN) THEN
+      SELECT CASE(PRES_FLAG)
+         CASE (FFT_FLAG)
+            IF (TUNNEL_PRECONDITIONER) CALL TUNNEL_POISSON_SOLVER
+            DO NM=LOWER_MESH_INDEX,UPPER_MESH_INDEX
+               CALL PRESSURE_SOLVER_FFT(NM)
+            ENDDO
+         CASE (GLMAT_FLAG,UGLMAT_FLAG)
+            CALL GLMAT_SOLVER(T,DT)
+            CALL MESH_EXCHANGE(5)
+            CALL COPY_H_OMESH_TO_MESH
+         CASE (ULMAT_FLAG)
+            IF (TUNNEL_PRECONDITIONER) CALL TUNNEL_POISSON_SOLVER
+            DO NM=LOWER_MESH_INDEX,UPPER_MESH_INDEX
+               CALL ULMAT_SOLVER(NM,T,DT)
+            ENDDO
+      END SELECT
+   ENDIF
 
    ! Check the residuals of the Poisson solution
    DO NM=LOWER_MESH_INDEX,UPPER_MESH_INDEX
@@ -1458,15 +1471,36 @@ PRESSURE_ITERATION_LOOP: DO
       END SELECT
    ENDDO
 
+   ! ==================== 安全网回退 ====================
+   IF (USED_CNN) THEN
+      IF (MAXVAL(PRESSURE_ERROR_MAX(LOWER_MESH_INDEX:UPPER_MESH_INDEX)) > CNN_RES_TOL) THEN
+         CNN_ACTIVE = .FALSE.
+         CNN_COOLDOWN = 50
+         IF (MY_RANK == 0) WRITE(*,*) '>>> [Safe-Net] CNN residual too high, fallback.'
+         ! 恢复旧压力场，重新开始传统迭代
+         DO NM = LOWER_MESH_INDEX, UPPER_MESH_INDEX
+            MESHES(NM)%HS = MESHES(NM)%H
+         ENDDO
+         CYCLE PRESSURE_ITERATION_LOOP
+      ENDIF
+   ELSE
+      IF (.NOT. CNN_ACTIVE) THEN
+         CNN_COOLDOWN = CNN_COOLDOWN - 1
+         IF (CNN_COOLDOWN <= 0) THEN
+            CNN_ACTIVE = .TRUE.
+            IF (MY_RANK == 0) WRITE(*,*) '>>> [Safe-Net] CNN reactivated.'
+         ENDIF
+      ENDIF
+   ENDIF
+
+   ! 原有收敛判断
    IF (.NOT.ITERATE_PRESSURE) EXIT PRESSURE_ITERATION_LOOP
-! Exchange both H or HS and FVX, FVY, FVZ and then estimate values of U, V, W (US, VS, WS) at next time step.
    CALL MESH_EXCHANGE(5)
 
    DO NM=LOWER_MESH_INDEX,UPPER_MESH_INDEX
       CALL COMPUTE_VELOCITY_ERROR(DT,NM)
       IF (CC_IBM) CALL CC_COMPUTE_VELOCITY_ERROR(DT,NM) 
    ENDDO
- ! Make all MPI processes aware of the maximum velocity error to decide if another pressure iteration is needed.
 
    IF (N_MPI_PROCESSES>1) THEN
       TNOW = CURRENT_TIME()
@@ -1493,13 +1527,13 @@ PRESSURE_ITERATION_LOOP: DO
          NM_MAX_P,',',PRESSURE_ERROR_MAX_LOC(1,NM_MAX_P),',',PRESSURE_ERROR_MAX_LOC(2,NM_MAX_P),',',&
          PRESSURE_ERROR_MAX_LOC(3,NM_MAX_P),',',MAXVAL(PRESSURE_ERROR_MAX)
    ENDIF
-   ! If the VELOCITY_TOLERANCE is satisfied or max/min iterations are hit, exit the loop.
+
    IF (MAXVAL(PRESSURE_ERROR_MAX)<PRESSURE_TOLERANCE) ITERATE_BAROCLINIC_TERM = .FALSE.
 
    IF ((MAXVAL(PRESSURE_ERROR_MAX)<PRESSURE_TOLERANCE .AND. &
         MAXVAL(VELOCITY_ERROR_MAX)<VELOCITY_TOLERANCE) .OR. PRESSURE_ITERATIONS>=MAX_PRESSURE_ITERATIONS) &
       EXIT PRESSURE_ITERATION_LOOP
-   ! Exit the iteration loop if satisfactory progress is not achieved
+
    IF (SUSPEND_PRESSURE_ITERATIONS .AND. ICYC>10) THEN
       IF (PRESSURE_ITERATIONS>3 .AND.  &
          MAXVAL(VELOCITY_ERROR_MAX)>ITERATION_SUSPEND_FACTOR*VELOCITY_ERROR_MAX_OLD .AND. &
@@ -1510,15 +1544,14 @@ PRESSURE_ITERATION_LOOP: DO
 
 ENDDO PRESSURE_ITERATION_LOOP
 
-! --- 收集训练数据 (仅添加此接口) ---
+! --- 收集训练数据 ---
 IF (CORRECTOR) THEN
    DO NM=LOWER_MESH_INDEX,UPPER_MESH_INDEX
-      CALL EXPORT_CNN_DATA(NM)
+      CALL EXPORT_CNN_DATA(NM,T)
    ENDDO
 ENDIF
 
 END SUBROUTINE PRESSURE_ITERATION_SCHEME
-
 
 !> \brief Compute a running average of the source correction factor for the radiative transport scheme.
 

@@ -182,7 +182,7 @@ impi_intel_win : FFLAGS = -D_WIN32 /Qipo /O2 /I$(MPIINCLUDE) /wrap-margin- $(GIT
 impi_intel_win : FCOMPL = $(COMP_FC)
 impi_intel_win : obj = fds_impi_intel_win
 impi_intel_win : setup_win $(objwin_mpi)
-	$(FCOMPL) -o $(obj) $(FFLAGS) /F1000000000 $(objwin_mpi) $(MPILIB) $(LFLAGSMKL_INTEL) $(LFLAGS_HYPRE_WIN) $(LFLAGS_SUNDIALS_WIN) /link "E:/2CODE/AaaaaIi/4FireFDS/2firePDE/4Back/cnn2CRPed.lib" /NODEFAULTLIB:MSVCRTD /NODEFAULTLIB:libcmtd.lib
+	$(FCOMPL) -o $(obj) $(FFLAGS) /F1000000000 $(objwin_mpi) $(MPILIB) $(LFLAGSMKL_INTEL) $(LFLAGS_HYPRE_WIN) $(LFLAGS_SUNDIALS_WIN) /link "E:/2CODE/AaaaaIi/4FireFDS/2cavityPDE/T_400_0/steady/steady1_310K/2BackT/cnn2CRPed.lib" /NODEFAULTLIB:MSVCRTD /NODEFAULTLIB:libcmtd.lib
 
 impi_intel_win_vt : MPILIB = "$(I_MPI_ROOT)\lib\impi.lib"
 impi_intel_win_vt : MPIINCLUDE = "$(I_MPI_ROOT)\include\mpi"
@@ -208,7 +208,7 @@ impi_intel_win_dv : FFLAGS = -D_WIN32 /O1 /I$(MPIINCLUDE) /Z7 /traceback /debug:
 impi_intel_win_dv : FCOMPL = $(COMP_FC)
 impi_intel_win_dv : obj = fds_impi_intel_win_dv
 impi_intel_win_dv : setup_win $(objwin_mpi)
-	$(FCOMPL) -o $(obj) $(FFLAGS) /F1000000000 $(objwin_mpi) $(MPILIB) $(LFLAGSMKL_INTEL) $(LFLAGS_HYPRE_WIN) $(LFLAGS_SUNDIALS_WIN) /link "E:/2CODE/AaaaaIi/4FireFDS/2firePDE/4Back/cnn2CRPed.lib" /NODEFAULTLIB:MSVCRTD /NODEFAULTLIB:libcmtd.lib
+	$(FCOMPL) -o $(obj) $(FFLAGS) /F1000000000 $(objwin_mpi) $(MPILIB) $(LFLAGSMKL_INTEL) $(LFLAGS_HYPRE_WIN) $(LFLAGS_SUNDIALS_WIN) /link "E:/2CODE/AaaaaIi/4FireFDS/2cavityPDE/T_400_0/steady/steady1_310K/2BackT/cnn2CRPed.lib" /NODEFAULTLIB:MSVCRTD /NODEFAULTLIB:libcmtd.lib
 
 impi_intel_win_openmp_dv : MPILIB = "$(I_MPI_ROOT)\lib\impi.lib"
 impi_intel_win_openmp_dv : MPIINCLUDE = "$(I_MPI_ROOT)\include\mpi"
@@ -225,7 +225,7 @@ impi_intel_win_db : FFLAGS = -D_WIN32 /Od /nologo /debug:all /I$(MPIINCLUDE) /Z7
 impi_intel_win_db : FCOMPL = $(COMP_FC)
 impi_intel_win_db : obj = fds_impi_intel_win_db
 impi_intel_win_db : setup_win $(objwin_mpi)
-	$(FCOMPL) -o $(obj) $(FFLAGS) /F1000000000 $(objwin_mpi) $(MPILIB) $(LFLAGSMKL_INTEL) $(LFLAGS_HYPRE_WIN) $(LFLAGS_SUNDIALS_WIN)  /link "E:/2CODE/AaaaaIi/4FireFDS/2firePDE/4Back/cnn2CRPed.lib" /NODEFAULTLIB:MSVCRTD /NODEFAULTLIB:libcmtd.lib
+	$(FCOMPL) -o $(obj) $(FFLAGS) /F1000000000 $(objwin_mpi) $(MPILIB) $(LFLAGSMKL_INTEL) $(LFLAGS_HYPRE_WIN) $(LFLAGS_SUNDIALS_WIN)  /link "E:/2CODE/AaaaaIi/4FireFDS/2cavityPDE/T_400_0/steady/steady1_310K/2BackT/cnn2CRPed.lib" /NODEFAULTLIB:MSVCRTD /NODEFAULTLIB:libcmtd.lib
 
 impi_intel_win_openmp_db : MPILIB = "$(I_MPI_ROOT)\lib\impi.lib"
 impi_intel_win_openmp_db : MPIINCLUDE = "$(I_MPI_ROOT)\include\mpi"

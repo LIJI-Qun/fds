@@ -64,31 +64,30 @@ extern "C" {
 
 // 初始化 Python 解释器并加载模型 (仅执行一次)
 DLL_EXPORT void cnn_initialize() {
-    static bool tried_init = false;
-    if (tried_init) {
-        if (python_init_ok) return;
-        std::cerr << "[C++ WARNING] Previous Python init failed, not retrying." << std::endl;
-        return;
+    static bool already_failed = false;
+    if (python_init_ok) return;
+    if (already_failed) {
+        std::cerr << "[C++ FATAL] CNN initialization previously failed. Exiting." << std::endl;
+        std::exit(1);
     }
-    tried_init = true;
 
-    // 初始化过程中 PyTorch 加载等操作可能触发浮点异常
     FPUShield shield;
-
     std::cout << "[C++] Initializing Python Interpreter..." << std::endl;
     try {
         py::initialize_interpreter();
-
-        std::cout << "[C++ DEBUG] Importing 'cnn1pythonRPred'..." << std::endl;
         py::module mod = py::module::import("cnn1pythonRPred");
         predict_fn = mod.attr("predict_from_array");
-
         python_init_ok = true;
         std::cout << "[C++] Python Environment Ready!" << std::endl;
     } catch (py::error_already_set &e) {
-        std::cerr << "[C++ ERROR] Python Init Failed: " << e.what() << std::endl;
+        std::cerr << "[C++ ERROR] Python Init Failed:\n" << e.what() << std::endl;
+        already_failed = true;
+        std::cerr << "[C++ FATAL] Exiting because CNN is essential." << std::endl;
+        std::exit(1);
     } catch (const std::exception &e) {
         std::cerr << "[C++ ERROR] C++ exception during init: " << e.what() << std::endl;
+        already_failed = true;
+        std::exit(1);
     }
 }
 
