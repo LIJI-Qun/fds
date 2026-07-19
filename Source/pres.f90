@@ -7,10 +7,15 @@ MODULE CNN_INTERFACE
   INTERFACE
     SUBROUTINE cnn_initialize() BIND(C, name="cnn_initialize")
     END SUBROUTINE
-    SUBROUTINE cnn_predict(input, output, B, C, H, W) BIND(C, name="cnn_predict")
+    SUBROUTINE cnn_predict(input, output, B, C, H, W, rank) BIND(C, name="cnn_predict")
       IMPORT :: C_FLOAT, C_INT
       REAL(C_FLOAT), DIMENSION(*) :: input, output
-      INTEGER(C_INT), VALUE :: B, C, H, W
+      INTEGER(C_INT), VALUE :: B, C, H, W, rank
+    END SUBROUTINE
+    ! --- 新增打印接口 ---
+    SUBROUTINE cnn_print_summary(rank) BIND(C, name="cnn_print_summary")
+      IMPORT :: C_INT
+      INTEGER(C_INT), VALUE :: rank
     END SUBROUTINE
   END INTERFACE
 END MODULE CNN_INTERFACE
@@ -31,8 +36,9 @@ IMPLICIT NONE (TYPE,EXTERNAL)
 PRIVATE
 
 PUBLIC PRESSURE_SOLVER_COMPUTE_RHS, PRESSURE_SOLVER_FFT, TUNNEL_POISSON_SOLVER, &
-       PRESSURE_SOLVER_CHECK_RESIDUALS, COMPUTE_VELOCITY_ERROR, EXPORT_CNN_DATA, &
-       PRESSURE_SOLVER_CNN, CNN_ACTIVE, CNN_COOLDOWN, CNN_RES_TOL
+       PRESSURE_SOLVER_CHECK_RESIDUALS, COMPUTE_VELOCITY_ERROR, &
+       PRESSURE_SOLVER_CNN, CNN_ACTIVE, CNN_COOLDOWN, CNN_RES_TOL, &
+       CNN_CALL_COUNT, PRINT_CNN_PROFILER_SUMMARY
 
 ! ================== CNN 全局状态变量 ==================
 LOGICAL, SAVE :: CNN_ACTIVE = .TRUE.
@@ -42,9 +48,13 @@ REAL(C_FLOAT), ALLOCATABLE, SAVE, TARGET :: CNN_IN(:), CNN_OUT(:)
 INTEGER(C_INT), SAVE :: CNN_B, CNN_C, CNN_H, CNN_W
 LOGICAL, SAVE :: ERROR_CSV_INITIALIZED = .FALSE.
 INTEGER, SAVE :: ERROR_CSV_UNIT
+
+! ---> 将统计变量提升为模块全局变量，以便所有子程序共享 <---
+REAL(EB), SAVE :: TOTAL_T_PACK = 0.0_EB
+REAL(EB), SAVE :: TOTAL_T_CALL = 0.0_EB
+INTEGER, SAVE  :: CNN_CALL_COUNT = 0
 ! ======================================================
 CONTAINS
-
 
 SUBROUTINE PRESSURE_SOLVER_COMPUTE_RHS(T,DT,NM)
 
@@ -350,10 +360,21 @@ END SUBROUTINE PRESSURE_SOLVER_COMPUTE_RHS
 
 SUBROUTINE PRESSURE_SOLVER_CNN(NM)
    USE MESH_POINTERS               ! 提供 HS, D, PRHS, XC, YC, ZC 等
+   USE COMP_FUNCTIONS, ONLY: CURRENT_TIME
+   USE GLOBAL_CONSTANTS, ONLY: T_USED, MY_RANK  ! 引入 T_USED 用于原生耗时统计，MY_RANK 用于控制输出
+
    INTEGER, INTENT(IN) :: NM
    INTEGER :: II, JJ, KK, IDX
    REAL(EB) :: DIV_VAL, P_OLD_VAL
    INTEGER :: REQ_SIZE_IN, REQ_SIZE_OUT
+   
+   ! 注意：这里只保留局部使用的临时变量，累加变量已经在 Module 顶部声明了
+   REAL(EB) :: CURRENT_PACK_TIME, CURRENT_CALL_TIME
+   REAL(EB) :: TNOW                ! 记录整个子程序的开始时间
+   REAL(EB) :: T_PACK_START, T_PACK_END  ! 记录数据打包时间
+   REAL(EB) :: T_CALL_START, T_CALL_END  ! 记录 C++/Python 调用总时间
+
+   TNOW = CURRENT_TIME()           ! <----- 1. 开始记录 CNN 求解器总时间
 
    CALL POINT_TO_MESH(NM)          ! 确保当前网格指针正确
 
@@ -377,6 +398,11 @@ SUBROUTINE PRESSURE_SOLVER_CNN(NM)
       ALLOCATE(CNN_OUT(REQ_SIZE_OUT))
    END IF
 
+   ! ==========================================================
+   ! 统计数据打包时间 (Fortran -> 一维数组)
+   ! ==========================================================
+   T_PACK_START = CURRENT_TIME()
+
    ! 按 JJ 切片预测（对于二维网格，JBAR=1，只循环一次）
    DO JJ = 1, JBAR
       DO KK = 1, KBAR
@@ -393,9 +419,46 @@ SUBROUTINE PRESSURE_SOLVER_CNN(NM)
             CNN_IN(5 * CNN_H * CNN_W + IDX + 1) = REAL(P_OLD_VAL, C_FLOAT)
          ENDDO
       ENDDO
-      
-      CALL cnn_predict(CNN_IN, CNN_OUT, CNN_B, CNN_C, CNN_H, CNN_W)
+   ENDDO
+   
+   T_PACK_END = CURRENT_TIME()
 
+   ! ==========================================================
+   ! 统计外部 C++/Python 调用的总时间
+   ! ==========================================================
+   T_CALL_START = CURRENT_TIME()
+
+   CALL cnn_predict(CNN_IN, CNN_OUT, CNN_B, CNN_C, CNN_H, CNN_W, MY_RANK)
+
+   T_CALL_END = CURRENT_TIME()
+
+   ! ==========================================================
+   ! 在主进程统计并输出 Fortran 端耗时信息 (累加模式)
+   ! ==========================================================
+   CURRENT_PACK_TIME = T_PACK_END - T_PACK_START
+   CURRENT_CALL_TIME = T_CALL_END - T_CALL_START
+
+   ! 更新模块全局变量
+   TOTAL_T_PACK = TOTAL_T_PACK + CURRENT_PACK_TIME
+   TOTAL_T_CALL = TOTAL_T_CALL + CURRENT_CALL_TIME
+   CNN_CALL_COUNT = CNN_CALL_COUNT + 1
+
+   ! 每 1000 次输出一次阶段性总结 (修复了你代码里的语法错误)
+   IF (MY_RANK == 0 .AND. MOD(CNN_CALL_COUNT, 1000) == 0) THEN
+      ! 打印标题行与总调用次数
+      WRITE(*,'(A,I6,A)') ' >>> [Fortran Profiler Summary | CNN Calls: ', CNN_CALL_COUNT, ']'
+      ! 打印数据打包的总时间与平均时间
+      WRITE(*,'(A,F10.6,A,F10.6)') '     -> Pack Time (s)    : Total = ', TOTAL_T_PACK, &
+                                   ' | Avg = ', TOTAL_T_PACK / REAL(CNN_CALL_COUNT, EB)
+      ! 打印C++/Python调用的总时间与平均时间
+      WRITE(*,'(A,F10.6,A,F10.6)') '     -> C++ Call Time (s): Total = ', TOTAL_T_CALL, &
+                                   ' | Avg = ', TOTAL_T_CALL / REAL(CNN_CALL_COUNT, EB)
+   ENDIF
+
+   ! ==========================================================
+   ! 将预测结果写回原数组
+   ! ==========================================================
+   DO JJ = 1, JBAR
       DO KK = 1, KBAR
          DO II = 1, IBAR
             IDX = (KK - 1) * IBAR + (II - 1)
@@ -404,7 +467,7 @@ SUBROUTINE PRESSURE_SOLVER_CNN(NM)
       ENDDO
    ENDDO
 
-   ! 施加 ghost 边界条件（与 FFT 求解器一致）
+   ! 施加 ghost 边界条件
    ! X 方向
    DO KK = 1, KBAR
       DO JJ = 1, JBAR
@@ -448,62 +511,31 @@ SUBROUTINE PRESSURE_SOLVER_CNN(NM)
          ENDIF
       ENDDO
    ENDDO
-
+   
+   ! 在子程序结束前，将整个子程序的总耗时累加到 PRES(5) 原生计时器中
+   T_USED(5) = T_USED(5) + CURRENT_TIME() - TNOW
+      
 END SUBROUTINE PRESSURE_SOLVER_CNN
 
 
-
-SUBROUTINE EXPORT_CNN_DATA(NM,T_SIM)
-   USE MESH_POINTERS
-   USE COMP_FUNCTIONS, ONLY: GET_FILE_NUMBER
-   USE GLOBAL_CONSTANTS
-   INTEGER, INTENT(IN) :: NM
-   INTEGER :: II, JJ, KK, IO_UNIT, IERR
-   CHARACTER(255) :: CSV_FILE, BIN_FILE
-   INTEGER(INT32) :: NFEAT = 4_INT32
-   REAL(EB), INTENT(IN) :: T_SIM
-
-   ! ====================================================
-   ! 条件 1：只在时间窗口 [50 s, 60 s] 内才可能输出
-   ! ====================================================
-   IF (T_SIM >= 50.0_EB .AND. T_SIM <= 60.0_EB) THEN
-
-      ! =================================================
-      ! 条件 2：每 20 步输出一次
-      ! =================================================
-      IF (MOD(ICYC, 20) == 0) THEN
-
-         CALL POINT_TO_MESH(NM)
-
-         WRITE(CSV_FILE, '(A,A,I0,A,I6.6,A)') TRIM(CHID), '_pressure_m', NM, '_step', ICYC, '.csv'
-         
-         ! =================================================
-         ! 修复点：这里的 TNOW 必须改为 T_SIM，否则报错 #6404
-         ! =================================================
-         WRITE(*,*) ' Exporting training data at T=', T_SIM , 's, ICYC=', ICYC  
-
-         ! ---- 写出 CSV 文件 ----------------------------------
-         IO_UNIT = GET_FILE_NUMBER()
-         OPEN(UNIT=IO_UNIT, FILE=TRIM(CSV_FILE), STATUS='REPLACE', FORM='FORMATTED', IOSTAT=IERR)
-         IF (IERR == 0) THEN
-            ! 列名改为训练代码期望：I, K, X, Y, Z, Div, RHS, P_old, P_new
-            WRITE(IO_UNIT, '(A)') 'I,K,X,Y,Z,Div,RHS,P_old,P_new'
-            DO KK = 1, KBAR
-               DO JJ = 1, JBAR
-                  DO II = 1, IBAR
-                     IF (CELL(CELL_INDEX(II,JJ,KK))%SOLID) CYCLE
-                     WRITE(IO_UNIT, '(I0,",",I0,",",3(ES15.7,","),4(ES15.7,:,","))') &
-                        II, KK, XC(II), YC(JJ), ZC(KK), &
-                        D(II,JJ,KK), PRHS(II,JJ,KK), H(II,JJ,KK), HS(II,JJ,KK)
-                  ENDDO
-               ENDDO
-            ENDDO
-            CLOSE(IO_UNIT)
-         END IF
-
-      END IF   ! MOD(ICYC,20)==0
-   END IF   ! time in [50,60]
-END SUBROUTINE EXPORT_CNN_DATA
+SUBROUTINE PRINT_CNN_PROFILER_SUMMARY()
+   USE GLOBAL_CONSTANTS, ONLY: MY_RANK
+   USE CNN_INTERFACE, ONLY: cnn_print_summary  ! 引入 C++ 打印函数
+   
+   IF (MY_RANK == 0 .AND. CNN_CALL_COUNT > 0) THEN
+      ! 1. 触发 C++ 端的最终打印
+      CALL cnn_print_summary(MY_RANK)
+      
+      ! 2. 接着打印 Fortran 端的最终结果
+      WRITE(*,'(A)') ' --------------------------------------------------'
+      WRITE(*,'(A,I6,A)') ' >>> [Final Fortran Profiler Summary | CNN Calls: ', CNN_CALL_COUNT, ']'
+      WRITE(*,'(A,F10.6,A,F10.6)') '     -> Pack Time (s)    : Total = ', TOTAL_T_PACK, &
+                                   ' | Avg = ', TOTAL_T_PACK / REAL(CNN_CALL_COUNT, EB)
+      WRITE(*,'(A,F10.6,A,F10.6)') '     -> C++ Call Time (s): Total = ', TOTAL_T_CALL, &
+                                   ' | Avg = ', TOTAL_T_CALL / REAL(CNN_CALL_COUNT, EB)
+      WRITE(*,'(A)') ' =================================================='
+   ENDIF
+END SUBROUTINE PRINT_CNN_PROFILER_SUMMARY
 
 
 SUBROUTINE PRESSURE_SOLVER_FFT(NM)

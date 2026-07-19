@@ -1384,7 +1384,7 @@ END SUBROUTINE MPI_INITIALIZATION_CHORES
 
 SUBROUTINE PRESSURE_ITERATION_SCHEME
 USE CC_SCALARS, ONLY : GET_LINKED_FV
-USE PRES, ONLY : EXPORT_CNN_DATA, PRESSURE_SOLVER_CNN, CNN_ACTIVE, CNN_COOLDOWN, CNN_RES_TOL
+
 REAL(EB) :: TNOW,VELOCITY_ERROR_MAX_OLD,PRESSURE_ERROR_MAX_OLD
 INTEGER :: NM_MAX_V,NM_MAX_P
 LOGICAL :: USED_CNN
@@ -1430,13 +1430,35 @@ PRESSURE_ITERATION_LOOP: DO
    ! ==================== CNN 接管 ====================
    USED_CNN = .FALSE.
    IF (CORRECTOR .AND. PRESSURE_ITERATIONS == 1) THEN
-      ! 修复点：直接使用主程序原生的物理时间变量 T，坚决不能加 T = CURRENT_TIME() !
-      IF (T >= 50.0_EB .AND. T <= 60.0_EB .AND. CNN_ACTIVE) THEN
-         WRITE(*,*) '>>> CNN is being called at T=', T
+      ! 直接使用主程序原生的物理时间变量 T，坚决不能加 T = CURRENT_TIME() !
+      IF (T >= 30.0_EB .AND. T <= 60.0_EB .AND. CNN_ACTIVE) THEN
+
+         ! --- 输出控制 (开始、整千步、结束) ---
+         IF (MY_RANK == 0) THEN
+            ! 1. 捕捉刚开始的第一次调用
+            IF (CNN_CALL_COUNT == 0) THEN
+               WRITE(*,'(A,F10.4)') ' >>> [CNN Stage] CNN solver STARTED at T = ', T
+            
+            ! 2. 捕捉整 1000 步的调用
+            ELSE IF (MOD(CNN_CALL_COUNT, 1000) == 0) THEN
+               WRITE(*,'(A,F10.4,A,I6,A)') ' >>> [CNN Stage] CNN solver running at T = ', T, ' (Calls: ', CNN_CALL_COUNT, ')'
+               
+            END IF
+            
+            ! 3. 捕捉最后一次调用 (即加上当前步长 DT 后，将超出 60.0 的接管窗口)
+            IF (T + DT > 60.0_EB) THEN
+               WRITE(*,'(A,F10.4)') ' >>> [CNN Stage] CNN solver FINISHED at T = ', T
+            ! --- 在这里触发最终的统计算法！ ---
+               CALL PRINT_CNN_PROFILER_SUMMARY()
+            END IF
+         END IF
+         ! ------------------------------------------------
+            
          DO NM = LOWER_MESH_INDEX, UPPER_MESH_INDEX
             CALL PRESSURE_SOLVER_CNN(NM)   ! 直接预测校正步压力 HS
          ENDDO
-         CALL MESH_EXCHANGE(5)            ! 更新插值边界
+         CALL MESH_EXCHANGE(5)             ! 更新插值边界
+         
          USED_CNN = .TRUE.
       ENDIF
    ENDIF
@@ -1544,12 +1566,6 @@ PRESSURE_ITERATION_LOOP: DO
 
 ENDDO PRESSURE_ITERATION_LOOP
 
-! --- 收集训练数据 ---
-IF (CORRECTOR) THEN
-   DO NM=LOWER_MESH_INDEX,UPPER_MESH_INDEX
-      CALL EXPORT_CNN_DATA(NM,T)
-   ENDDO
-ENDIF
 
 END SUBROUTINE PRESSURE_ITERATION_SCHEME
 
