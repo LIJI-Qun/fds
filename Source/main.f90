@@ -1431,7 +1431,7 @@ PRESSURE_ITERATION_LOOP: DO
    USED_CNN = .FALSE.
    IF (CORRECTOR .AND. PRESSURE_ITERATIONS == 1) THEN
       ! 直接使用主程序原生的物理时间变量 T，坚决不能加 T = CURRENT_TIME() !
-      IF (T >= 30.0_EB .AND. T <= 60.0_EB .AND. CNN_ACTIVE) THEN
+      IF (T >= 50.0_EB .AND. T <= 60.0_EB .AND. CNN_ACTIVE) THEN
 
          ! --- 输出控制 (开始、整千步、结束) ---
          IF (MY_RANK == 0) THEN
@@ -1484,6 +1484,7 @@ PRESSURE_ITERATION_LOOP: DO
    ENDIF
 
    ! Check the residuals of the Poisson solution
+   ! (保留这里是为了记录和打印残差，看 CNN 预测的误差)
    DO NM=LOWER_MESH_INDEX,UPPER_MESH_INDEX
       SELECT CASE(PRES_FLAG)
          CASE DEFAULT
@@ -1494,26 +1495,26 @@ PRESSURE_ITERATION_LOOP: DO
    ENDDO
 
    ! ==================== 安全网回退 ====================
-   IF (USED_CNN) THEN
-      IF (MAXVAL(PRESSURE_ERROR_MAX(LOWER_MESH_INDEX:UPPER_MESH_INDEX)) > CNN_RES_TOL) THEN
-         CNN_ACTIVE = .FALSE.
-         CNN_COOLDOWN = 50
-         IF (MY_RANK == 0) WRITE(*,*) '>>> [Safe-Net] CNN residual too high, fallback.'
-         ! 恢复旧压力场，重新开始传统迭代
-         DO NM = LOWER_MESH_INDEX, UPPER_MESH_INDEX
-            MESHES(NM)%HS = MESHES(NM)%H
-         ENDDO
-         CYCLE PRESSURE_ITERATION_LOOP
-      ENDIF
-   ELSE
-      IF (.NOT. CNN_ACTIVE) THEN
-         CNN_COOLDOWN = CNN_COOLDOWN - 1
-         IF (CNN_COOLDOWN <= 0) THEN
-            CNN_ACTIVE = .TRUE.
-            IF (MY_RANK == 0) WRITE(*,*) '>>> [Safe-Net] CNN reactivated.'
-         ENDIF
-      ENDIF
-   ENDIF
+   ! IF (USED_CNN) THEN
+   !    IF (MAXVAL(PRESSURE_ERROR_MAX(LOWER_MESH_INDEX:UPPER_MESH_INDEX)) > CNN_RES_TOL) THEN
+   !       CNN_ACTIVE = .FALSE.
+   !       CNN_COOLDOWN = 50
+   !       IF (MY_RANK == 0) WRITE(*,*) '>>> [Safe-Net] CNN residual too high, fallback.'
+   !       ! 恢复旧压力场，重新开始传统迭代
+   !       DO NM = LOWER_MESH_INDEX, UPPER_MESH_INDEX
+   !          MESHES(NM)%HS = MESHES(NM)%H
+   !       ENDDO
+   !       CYCLE PRESSURE_ITERATION_LOOP
+   !    ENDIF
+   ! ELSE
+   !    IF (.NOT. CNN_ACTIVE) THEN
+   !       CNN_COOLDOWN = CNN_COOLDOWN - 1
+   !       IF (CNN_COOLDOWN <= 0) THEN
+   !          CNN_ACTIVE = .TRUE.
+   !          IF (MY_RANK == 0) WRITE(*,*) '>>> [Safe-Net] CNN reactivated.'
+   !       ENDIF
+   !    ENDIF
+   ! ENDIF
 
    ! 原有收敛判断
    IF (.NOT.ITERATE_PRESSURE) EXIT PRESSURE_ITERATION_LOOP
@@ -1551,11 +1552,17 @@ PRESSURE_ITERATION_LOOP: DO
    ENDIF
 
    IF (MAXVAL(PRESSURE_ERROR_MAX)<PRESSURE_TOLERANCE) ITERATE_BAROCLINIC_TERM = .FALSE.
-
-   IF ((MAXVAL(PRESSURE_ERROR_MAX)<PRESSURE_TOLERANCE .AND. &
-        MAXVAL(VELOCITY_ERROR_MAX)<VELOCITY_TOLERANCE) .OR. PRESSURE_ITERATIONS>=MAX_PRESSURE_ITERATIONS) &
+      ! =========================================================================
+   ! 【强制退出逻辑】: 如果 USED_CNN 为真，或者满足 FDS 原本的收敛条件，就直接退出
+   ! =========================================================================
+   IF (USED_CNN .OR. &
+       (MAXVAL(PRESSURE_ERROR_MAX)<PRESSURE_TOLERANCE .AND. &
+        MAXVAL(VELOCITY_ERROR_MAX)<VELOCITY_TOLERANCE) .OR. &
+       PRESSURE_ITERATIONS>=MAX_PRESSURE_ITERATIONS) &
+   ! IF ((MAXVAL(PRESSURE_ERROR_MAX)<PRESSURE_TOLERANCE .AND. &
+   !      MAXVAL(VELOCITY_ERROR_MAX)<VELOCITY_TOLERANCE) .OR. PRESSURE_ITERATIONS>=MAX_PRESSURE_ITERATIONS) &
       EXIT PRESSURE_ITERATION_LOOP
-
+   ! 如果既不是 CNN，又没收敛，执行这里的挂起判断，然后开始下一次迭代
    IF (SUSPEND_PRESSURE_ITERATIONS .AND. ICYC>10) THEN
       IF (PRESSURE_ITERATIONS>3 .AND.  &
          MAXVAL(VELOCITY_ERROR_MAX)>ITERATION_SUSPEND_FACTOR*VELOCITY_ERROR_MAX_OLD .AND. &
