@@ -1388,6 +1388,11 @@ USE CC_SCALARS, ONLY : GET_LINKED_FV
 REAL(EB) :: TNOW,VELOCITY_ERROR_MAX_OLD,PRESSURE_ERROR_MAX_OLD
 INTEGER :: NM_MAX_V,NM_MAX_P
 LOGICAL :: USED_CNN
+! ---> 原生求解器计时变量 <---
+REAL(EB), SAVE :: TOTAL_NATIVE_TIME = 0._EB
+INTEGER, SAVE  :: NATIVE_CALL_COUNT = 0
+REAL(EB) :: T_START_NATIVE, T_END_NATIVE
+! -----------------------------------
 
 PRESSURE_ITERATIONS = 0
 IF (BAROCLINIC) THEN
@@ -1440,7 +1445,7 @@ PRESSURE_ITERATION_LOOP: DO
                WRITE(*,'(A,F10.4)') ' >>> [CNN Stage] CNN solver STARTED at T = ', T
             
             ! 2. 捕捉整 1000 步的调用
-            ELSE IF (MOD(CNN_CALL_COUNT, 1000) == 0) THEN
+            ELSE IF (MOD(CNN_CALL_COUNT, 4000) == 0) THEN
                WRITE(*,'(A,F10.4,A,I6,A)') ' >>> [CNN Stage] CNN solver running at T = ', T, ' (Calls: ', CNN_CALL_COUNT, ')'
                
             END IF
@@ -1465,6 +1470,9 @@ PRESSURE_ITERATION_LOOP: DO
 
    ! ==================== 传统求解器 ====================
    IF (.NOT. USED_CNN) THEN
+      ! 1. 记录原生求解器开始时间
+      T_START_NATIVE = CURRENT_TIME()
+      !2. 执行真正的原生泊松求解  
       SELECT CASE(PRES_FLAG)
          CASE (FFT_FLAG)
             IF (TUNNEL_PRECONDITIONER) CALL TUNNEL_POISSON_SOLVER
@@ -1481,6 +1489,23 @@ PRESSURE_ITERATION_LOOP: DO
                CALL ULMAT_SOLVER(NM,T,DT)
             ENDDO
       END SELECT
+
+      ! 3. 记录原生求解器结束时间
+      T_END_NATIVE = CURRENT_TIME()
+      ! 4. 累加总时间与调用次数
+      TOTAL_NATIVE_TIME = TOTAL_NATIVE_TIME + (T_END_NATIVE - T_START_NATIVE)
+      NATIVE_CALL_COUNT = NATIVE_CALL_COUNT + 1
+
+      ! 5. 每隔 1000 次调用，或者在模拟最后，打印出原生求解器的极细致耗时
+      IF (MY_RANK == 0) THEN
+         IF (MOD(NATIVE_CALL_COUNT, 20000) == 0 .OR. T+DT > T_END) THEN
+            WRITE(*,'(A,I8,A,F10.4,A,F10.6,A)') &
+               ' >>> [Native Profiler] Calls: ', NATIVE_CALL_COUNT, &
+               ' | Total Time: ', TOTAL_NATIVE_TIME, &
+               ' s | Avg Time: ', (TOTAL_NATIVE_TIME / REAL(NATIVE_CALL_COUNT, EB)) * 1000.0_EB, ' ms'
+         ENDIF
+      ENDIF
+
    ENDIF
 
    ! Check the residuals of the Poisson solution

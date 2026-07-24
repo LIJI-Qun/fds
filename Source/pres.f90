@@ -433,7 +433,7 @@ SUBROUTINE PRESSURE_SOLVER_CNN(NM)
    T_CALL_END = CURRENT_TIME()
 
    ! ==========================================================
-   ! 在主进程统计并输出 Fortran 端耗时信息 (累加模式)
+   ! 在主进程统计并输出 Fortran 端耗时信息 
    ! ==========================================================
    CURRENT_PACK_TIME = T_PACK_END - T_PACK_START
    CURRENT_CALL_TIME = T_CALL_END - T_CALL_START
@@ -443,7 +443,7 @@ SUBROUTINE PRESSURE_SOLVER_CNN(NM)
    TOTAL_T_CALL = TOTAL_T_CALL + CURRENT_CALL_TIME
    CNN_CALL_COUNT = CNN_CALL_COUNT + 1
 
-   ! 每 1000 次输出一次阶段性总结 (修复了你代码里的语法错误)
+   ! 每 1000 次输出一次阶段性总结 
    IF (MY_RANK == 0 .AND. MOD(CNN_CALL_COUNT, 1000) == 0) THEN
       ! 打印标题行与总调用次数
       WRITE(*,'(A,I6,A)') ' >>> [Fortran Profiler Summary | CNN Calls: ', CNN_CALL_COUNT, ']'
