@@ -462,7 +462,11 @@ SUBROUTINE PRESSURE_SOLVER_CNN(NM)
       DO KK = 1, KBAR
          DO II = 1, IBAR
             IDX = (KK - 1) * IBAR + (II - 1)
+            
             HS(II,JJ,KK) = REAL(CNN_OUT(IDX + 1), EB)
+            
+            ! 新代码 (在 Fortran FP64 环境下安全累加微小修正值)
+            !HS(II,JJ,KK) = HS(II,JJ,KK) + REAL(CNN_OUT(IDX + 1), EB)
          ENDDO
       ENDDO
    ENDDO
