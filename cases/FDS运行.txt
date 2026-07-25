@@ -1,0 +1,71 @@
+mpiexec -np 1 E:\2CODE\AaaaaIi\4FireFDS\fireGIT\fds\Build\impi_intel_win\fds_impi_intel_win.exe Thot_130_0.fds
+
+mpiexec -np 1 E:\2CODE\AaaaaIi\4FireFDS\2cavityPDE\T_400_0\steady\fds_impi_intel_win.exe Thot_40_0.fds
+输出比较棋盘问题
+输出计算
+
+
+mpiexec -np 1 E:\2CODE\AaaaaIi\4FireFDS\2cavityPDE\T_400_0\steady\steady1_310Kmesh2\12Back0T40C\fds_impi_intel_win.exe Thot_40_0.fds 
+
+
+提交现存更改
+# 1. 查看当前修改状态（确认要提交的文件）
+git status
+
+# 2. 将所有修改添加到暂存区
+git add .
+
+# 3. 提交更改（填写你的提交说明）
+git commit -m "oldCnnFortran_C_Python替代 "
+
+# 4. 推送到远程 fireT 分支
+git push origin oldBackup_newCnn
+
+
+To https://github.com/LIJI-Qun/fds.git
+   073500b1c..4f5a113db  newCnn -> newCnn
+
+
+
+拉取代码
+git clone -b SaveData_Div_Rhs_Pold_Pnew https://github.com/LIJI-Qun/fds.git
+
+方法二：已克隆过仓库（更新到最新）
+如果已经克隆了整个仓库，先切换到目标分支，再拉取最新代码：
+git checkout SaveData_Div_Rhs_Pold_Pnew
+git checkout newCnn
+git pull origin newCnn
+方案二：仅对 GitHub 使用代理（其他保持直连）
+如果你的网络环境只需要代理 GitHub，这个方案更灵活。
+git config --global http.https://github.com.proxy http://127.0.0.1:7897
+git config --global https.https://github.com.proxy http://127.0.0.1:<你的代理端口>
+
+切换到 newCnn 分支（而非合并）
+# 先放弃当前合并（如果还在冲突状态）
+git merge --abort
+
+# 获取远程最新（fetch 已做过，但再执行一次无妨）
+git fetch origin
+
+# 创建并切换到本地 newCnn 分支，并跟踪远程 newCnn
+git checkout -b newCnn origin/newCnn   # 如果本地没有该分支
+# 或直接切换（如果已存在）
+git checkout newCnn
+在 newCnn 分支上工作了，不会与 fireT 产生合并冲突。
+
+
+Intel 的 lld-link 在链接 DLL 时，通常需要一个对应的 .lib（导入库）文件作为“引导”。MinGW 的 g++ 可以顺手帮你把这个 .lib 生成出来。
+在 Windows 下使用的是 g++（比如 MinGW-w64），在当前的终端（已经激活了 torch2_env 的 PowerShell）中，运行以下编译命令。
+
+g++ -O3 -Wall -shared -std=c++11 -IE:\ProgramData\miniconda3\envs\torch2_env\Include -IE:\ProgramData\miniconda3\envs\torch2_env\lib\site-packages\pybind11\include cnn2CRPed.cpp -o cnn2CRPed.dll "-Wl,--out-implib,cnn2CRPed.lib" -LE:\ProgramData\miniconda3\envs\torch2_env\libs -lpython310
+同时修改FDS中makefile
+
+
+
+ONNX文件
+g++ -O3 -Wall -shared -std=c++17 -I "E:\Program Files\onnxruntime-win-x64-1.27.1\include" 3cnn2CRPedShortTime2.cpp -o cnn2CRPed.dll "-Wl,--out-implib,cnn2CRPed.lib" -L "E:\Program Files\onnxruntime-win-x64-1.27.1\lib" -lonnxruntime
+
+把 E:\Program Files\onnxruntime-win-x64-1.27.1\lib\onnxruntime.dll 丢进 FDS 运行目录（也就是和刚生成的 cnn2CRPed.dll 放在一起）。
+
+
+

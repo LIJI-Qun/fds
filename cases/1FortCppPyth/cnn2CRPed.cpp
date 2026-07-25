@@ -38,8 +38,11 @@ public:
         old_sse = _MM_GET_EXCEPTION_MASK();
         _MM_SET_EXCEPTION_MASK(_MM_MASK_MASK);
     }
+// 析构函数，用于恢复浮点运算单元(FPU)和SIMD的原始异常处理设置
     ~FPUShield() {
+    // 恢复之前的浮点环境设置，包括舍入模式、异常掩码等
         std::fesetenv(&old_fenv);
+    // 恢复之前的SIMD(流式SIMD扩展)异常掩码设置
         _MM_SET_EXCEPTION_MASK(old_sse);
     }
 };
@@ -52,7 +55,7 @@ namespace py = pybind11;
 static bool python_init_ok = false;   
 static py::function predict_fn;       
 
-// 新增：用于累加耗时的全局统计变量
+// 用于累加耗时的全局统计变量
 static uint64_t total_calls = 0;
 static double total_ms_in = 0.0;
 static double total_ms_infer = 0.0;
@@ -131,8 +134,8 @@ DLL_EXPORT void cnn_predict(float *in, float *out, int B, int C, int H, int W, i
         total_ms_infer += ms_infer;
         total_ms_out += ms_out;
 
-        // 【过程输出】：每 1000 次调用，输出一次总结报告 (极大地降低 I/O 开销)
-        if (rank == 0 && total_calls % 1000 == 0) {
+        // 【过程输出】：每 1000 次调用，输出一次总结报告 (降低 I/O 开销)
+        if (rank == 0 && total_calls % 4000 == 0) {
             std::cout << "\n[C++ Profiler Summary | CNN Calls: " << total_calls << "]\n"
                       << "     -> Wrap (C++->Py) : Total = " << total_ms_in << " ms | Avg = " << total_ms_in / total_calls << " ms\n"
                       << "     -> Py-Inference   : Total = " << total_ms_infer << " ms | Avg = " << total_ms_infer / total_calls << " ms\n"
@@ -150,12 +153,26 @@ DLL_EXPORT void cnn_predict(float *in, float *out, int B, int C, int H, int W, i
 // 提供给 Fortran 在模拟彻底结束（如 60s 时）调用的接口
 DLL_EXPORT void cnn_print_summary(int rank) {
     if (rank == 0 && total_calls > 0) {
+        // 1. 打印 C++ 层的包装耗时统计
         std::cout << "\n==================================================\n"
                   << "[Final C++ Profiler Summary | CNN Calls: " << total_calls << "]\n"
                   << "     -> Wrap (C++->Py) : Total = " << total_ms_in << " ms | Avg = " << total_ms_in / total_calls << " ms\n"
                   << "     -> Py-Inference   : Total = " << total_ms_infer << " ms | Avg = " << total_ms_infer / total_calls << " ms\n"
                   << "     -> Copy (Py->C++) : Total = " << total_ms_out << " ms | Avg = " << total_ms_out / total_calls << " ms\n";
+
+        // 2. 跨语言调用 Python 内部的 14步细分统计打印函数
+        if (python_init_ok) {
+            FPUShield shield; // 保护浮点环境，防止 Python 退出时抛出异常
+            try {
+                py::module mod = py::module::import("cnn1pythonRPred_cavity");
+                py::function print_summary_fn = mod.attr("print_summary");
+                print_summary_fn(); // 执行 Python 中的 _print_summary()
+            } catch (const std::exception &e) {
+                std::cerr << "[C++ ERROR] Could not call Python print_summary: " << e.what() << std::endl;
+            }
+        }
+        std::cout << "==================================================\n\n";
     }
-}
+ }
 
 } // extern "C"
