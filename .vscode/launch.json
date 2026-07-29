@@ -1,36 +1,109 @@
 {
+  // FDS launch.json — 三种启动方式
+  //
+  // 核心概念:
+  //   直接启动 fds.exe   → 只能控制 OpenMP 线程数 (MPI进程数固定为1)
+  //   经 mpiexec 启动    → 能同时控制 MPI进程数 (-np) 和 OpenMP线程数 (-env OMP_NUM_THREADS)
+  // exe 是 Intel MPI 版 (fds_impi_intel_win), 不是 OpenMPI
+  // Windows 上 FDS 官方只用 Intel MPI; OpenMPI 是 Linux 方案
   "version": "0.2.0",
   "configurations": [
-    {  
-      "name": "FDS-6.10 Debug",
-      "type": "cppvsdbg",
-      "request": "launch",
-      "program": "${workspaceFolder}\\Build\\impi_intel_win_db\\fds_impi_intel_win_db.exe",
-      "args": ["E:/2CODE/AaaaaIi/4FireFDS/2cavityPDE/T_400_0/steady/steady1_310Kmesh2/dataT40CfixTime/Thot_40_0.fds"],
-      "stopAtEntry": false,
-      "cwd": "E:/2CODE/AaaaaIi/4FireFDS/2cavityPDE/T_400_0/steady/steady1_310Kmesh2/dataT40CfixTime",
+      {
+          // ===== 1. Debug 单进程 + OpenMP 线程数写死 =====
+          // 直接启动 fds.exe, 不经过 mpiexec
+          // "核心数" = OpenMP 线程数, 在 environment 里写死
+          // MPI 进程数固定为 1, 无法改变 (除非改用 mpiexec 启动)
+          "name": "FDS-6.10 Debug (OpenMP 4线程)",
+          "type": "cppvsdbg",
+          "request": "launch",
+          "program": "${workspaceFolder}\\Build\\impi_intel_win_db\\fds_impi_intel_win_db.exe",
+          "args": [
+              "E:/2CODE/AaaaaIi/4FireFDS/2cavityPDE/T_400_0/steady/steady1_310Kmesh2/FDSdataT40C/Thot_40_0.fds"
+          ],
+          "stopAtEntry": false,
+          "cwd": "E:/2CODE/AaaaaIi/4FireFDS/2cavityPDE/T_400_0/steady/steady1_310Kmesh2/FDSdataT40C",
+          "console": "integratedTerminal",
+          "symbolSearchPath": "${workspaceFolder}\\Build\\impi_intel_win_db",
+          "logging": { "moduleLoad": true },
+          "environment": [
+              { "name": "OMP_NUM_THREADS", "value": "4" },
+              { "name": "OMP_STACKSIZE", "value": "16M" }
+          ]
+      },
+      {
+          // ===== 2. Release 单进程 + OpenMP 线程数写死 =====
+          // 同上, 但用 Release 版 exe, 不带调试符号
+          "name": "FDS-6.10 Release (OpenMP 1线程)",
+          "type": "cppvsdbg",
+          "request": "launch",
+          "program": "${workspaceFolder}\\Build\\impi_intel_win\\fds_impi_intel_win.exe",
+          "args": [
+              "E:/2CODE/AaaaaIi/4FireFDS/2cavityPDE/T_400_0/steady/steady1_310K/FDSdataT40C/Thot_40_0.fds"
+          ],
+          "stopAtEntry": false,
+          "cwd": "E:/2CODE/AaaaaIi/4FireFDS/2cavityPDE/T_400_0/steady/steady1_310K/FDSdataT40C",
+          "console": "integratedTerminal",
+          "environment": [
+              { "name": "OMP_NUM_THREADS", "value": "1" },
+              { "name": "OMP_STACKSIZE", "value": "16M" }
+          ]
+      },
 
-      "console": "integratedTerminal",
-      "symbolSearchPath": "${workspaceFolder}\\Build\\impi_intel_win_db",
-
-      "logging": {
-        "moduleLoad": true
+      {
+          // ===== 3. 经 mpiexec 启动 (MPI 并行) =====
+          // 同时控制 MPI进程数 和 OpenMP线程数
+          // program 指向 mpiexec, fds.exe 作为参数传入
+          //
+          // -np 4           → 4 个 MPI 进程 (需 .fds 中有 ≥4 个 &MESH)
+          // -env OMP_NUM_THREADS 1 → 每个MPI进程内 1 个OpenMP线程 (纯MPI)
+          //
+          // 调试限制: mpiexec 派生子进程, 断点只在 mpiexec 主进程生效
+          //           要断点调试 FDS 源码, 用上面的直接启动方式或 Attach 模式
+          "name": "FDS-6.10 MPI (4进程)",
+          "type": "cppvsdbg",
+          "request": "launch",
+          "program": "mpiexec",
+          "args": [
+              "-np", "4",
+              "-env", "OMP_NUM_THREADS", "1",
+              "${workspaceFolder}\\Build\\impi_intel_win\\fds_impi_intel_win.exe",
+              "E:/2CODE/AaaaaIi/4FireFDS/2cavityPDE/T_400_0/steady/steady1_310K/dataT40/Thot_40_0.fds"
+          ],
+          "stopAtEntry": false,
+          "cwd": "E:/2CODE/AaaaaIi/4FireFDS/2cavityPDE/T_400_0/steady/steady1_310K/dataT40",
+          "console": "integratedTerminal",
+          "environment": []
+      },
+      {
+          // ===== 4. 混合并行 (MPI + OpenMP) =====
+          // -np 2 × OMP_NUM_THREADS 2 = 共 4 核
+          // 需 .fds 中有 ≥2 个 &MESH
+          "name": "FDS-6.10 Hybrid (2进程×2线程)",
+          "type": "cppvsdbg",
+          "request": "launch",
+          "program": "mpiexec",
+          "args": [
+              "-np", "2",
+              "-env", "OMP_NUM_THREADS", "2",
+              "-env", "OMP_STACKSIZE", "16M",
+              "${workspaceFolder}\\Build\\impi_intel_win\\fds_impi_intel_win.exe",
+              "E:/2CODE/AaaaaIi/4FireFDS/2cavityPDE/T_400_0/steady/steady1_310K/dataT40/Thot_40_0.fds"
+          ],
+          "stopAtEntry": false,
+          "cwd": "E:/2CODE/AaaaaIi/4FireFDS/2cavityPDE/T_400_0/steady/steady1_310K/dataT40",
+          "console": "integratedTerminal",
+          "environment": []
+      },
+      {
+          // ===== 5. MPI 调试 (Attach 附加到进程) =====
+          // MPI 多进程无法直接 launch 调试, 需两步:
+          //   1. 先用 tasks.json 或配置3/4 启动模拟
+          //   2. F5 选此项, 从进程列表选 fds_impi_intel_win.exe 附加
+          "name": "FDS-6.10 MPI Debug (Attach)",
+          "type": "cppvsdbg",
+          "request": "attach",
+          "processId": "${command:pickProcess}",
+          "program": "${workspaceFolder}\\Build\\impi_intel_win\\fds_impi_intel_win.exe"
       }
-    },
-    {
-
-      "name": "FDS-6.10 Release (Run Fast)",
-      "type": "cppvsdbg",
-      "request": "launch",
-      // 这里将路径指向了没有 _db 后缀的 release 文件夹和 exe
-      "program": "${workspaceFolder}\\Build\\impi_intel_win\\fds_impi_intel_win.exe",
-      "args": ["E:/2CODE/AaaaaIi/4FireFDS/2cavityPDE/T_400_0/steady/steady1_310Kmesh2/dataT40CfixTime/Thot_40_0.fds"],
-      "stopAtEntry": false,
-      "cwd": "E:/2CODE/AaaaaIi/4FireFDS/2cavityPDE/T_400_0/steady/steady1_310Kmesh2/dataT40CfixTime",
-
-      "console": "integratedTerminal"
-      // 去掉 symbolSearchPath 和 sourceFileMap，因为 Release 版本通常不用于断点调试
-      
-    }
   ]
 }

@@ -1388,7 +1388,15 @@ USE CC_SCALARS, ONLY : GET_LINKED_FV
 USE, INTRINSIC :: ISO_FORTRAN_ENV, ONLY : INT32
 INTEGER :: NM_MAX_V,NM_MAX_P
 REAL(EB) :: TNOW,VELOCITY_ERROR_MAX_OLD,PRESSURE_ERROR_MAX_OLD
-
+! 为泊松求解器计时变量声明类型 
+REAL(EB) :: T_START_POISSON, T_ELAPSED_POISSON
+REAL(EB) :: TOTAL_T_POISSON, AVERAGE_T_POISSON
+INTEGER  :: COUNT_POISSON
+! ====== 全局累计统计变量（跨整个模拟，使用SAVE保持值在调用间不丢失）======
+REAL(EB), SAVE :: GLOBAL_TOTAL_T_POISSON = 0.0_EB  ! 校正步泊松求解累计时间
+INTEGER,  SAVE :: GLOBAL_COUNT_POISSON = 0          ! 校正步泊松求解累计调用次数
+REAL(EB), SAVE :: ALL_TOTAL_T_POISSON = 0.0_EB     ! 所有步（预测+校正）泊松求解累计时间
+INTEGER,  SAVE :: ALL_COUNT_POISSON = 0             ! 所有步（预测+校正）泊松求解累计调用次数
 ! ======== 数据导出变量 ========
 LOGICAL :: WRITE_DATA
 INTEGER :: II, JJ, KK, IO_UNIT
@@ -1399,10 +1407,9 @@ CHARACTER(255) :: CSV_FILE, BIN_FILE
 TYPE :: EXPORT_DATA_TYPE
    REAL(EB), ALLOCATABLE, DIMENSION(:,:,:) :: DIV, RHS, POLD, PNEW
 END TYPE EXPORT_DATA_TYPE
-
-! 声明一个大小为 NMESHES 的一维数组，每个元素对应一个网格的数据
+! 声明大小为 NMESHES 的一维数组，每个元素对应一个网格的数据
 TYPE(EXPORT_DATA_TYPE), ALLOCATABLE, DIMENSION(:) :: EXPORT_DATA
-! ===============================
+
 
 PRESSURE_ITERATIONS = 0
 IF (BAROCLINIC) THEN
@@ -1424,14 +1431,13 @@ IF (CORRECTOR) THEN
    ! 增加物理时间限制：T 大于等于 40s 且 小于等于 60s
    IF (ICYC==1 .OR. (T+DT)>=T_END) WRITE_DATA = .TRUE.  
    
-   IF (T >=50.0_EB .AND. T <= 60.0_EB) THEN
-      IF (MOD(ICYC,100)==0) WRITE_DATA = .TRUE. 
+   IF (T >=20.0_EB .AND. T <= 50.0_EB) THEN
+      IF (MOD(ICYC,400)==0) WRITE_DATA = .TRUE. 
       WRITE(*,*) ' Exporting training data at T=', T, 's, ICYC=', ICYC  
    ENDIF
 
 ENDIF
-! --------------------------------------------------------
-   
+
 ! ----- 分配并保存旧数据 (POLD, DIV) -----
 IF (WRITE_DATA) THEN
    IF (.NOT. ALLOCATED(EXPORT_DATA)) ALLOCATE(EXPORT_DATA(NMESHES))
@@ -1462,7 +1468,10 @@ IF (WRITE_DATA) THEN
    ENDDO
 ENDIF
 
-! ...（中间压力迭代循环保持不变）...
+!中间压力迭代循环保持不变
+! 在进入压力迭代循环前，初始化累计时间和次数
+TOTAL_T_POISSON = 0.0_EB
+COUNT_POISSON = 0
 
 PRESSURE_ITERATION_LOOP: DO
 
@@ -1499,10 +1508,11 @@ PRESSURE_ITERATION_LOOP: DO
          EXPORT_DATA(NM)%RHS(1:M%IBAR, 1:M%JBAR, 1:M%KBAR) = M%PRHS(1:M%IBAR, 1:M%JBAR, 1:M%KBAR)
       ENDIF
    ENDDO
-
+   
+   ! 1. 记录求解前的时间
+   T_START_POISSON = CURRENT_TIME()
    ! Solve the Poission equation using either FFT or ULMAT, GLMAT, or UGLMAT
    ! 2. 调用泊松求解器 (求解器会覆写 PRHS，并更新 H 或 HS)
-
    SELECT CASE(PRES_FLAG)
       CASE (FFT_FLAG)
          IF (TUNNEL_PRECONDITIONER) CALL TUNNEL_POISSON_SOLVER
@@ -1519,6 +1529,23 @@ PRESSURE_ITERATION_LOOP: DO
             CALL ULMAT_SOLVER(NM,T,DT)
          ENDDO
    END SELECT
+   ! 3. 计算单次求解时间，并累加
+   T_ELAPSED_POISSON = CURRENT_TIME() - T_START_POISSON
+   TOTAL_T_POISSON = TOTAL_T_POISSON + T_ELAPSED_POISSON
+   COUNT_POISSON = COUNT_POISSON + 1
+
+   ! 累加到全局统计（所有调用，含预测步和校正步）
+   ALL_TOTAL_T_POISSON = ALL_TOTAL_T_POISSON + T_ELAPSED_POISSON
+   ALL_COUNT_POISSON = ALL_COUNT_POISSON + 1
+   ! 校正步单独累加
+   IF (CORRECTOR) THEN
+      GLOBAL_TOTAL_T_POISSON = GLOBAL_TOTAL_T_POISSON + T_ELAPSED_POISSON
+      GLOBAL_COUNT_POISSON = GLOBAL_COUNT_POISSON + 1
+   ENDIF
+   ! 4. 如果处于写入数据的窗口，可以打印单次时间
+   IF (WRITE_DATA) THEN
+      WRITE(*,*) ' Poisson Solver CPU Time for ICYC=', ICYC, ' is ', T_ELAPSED_POISSON, ' seconds.'
+   ENDIF
 
    ! Check the residuals of the Poisson solution
 
@@ -1589,8 +1616,44 @@ PRESSURE_ITERATION_LOOP: DO
    ENDIF
 
 ENDDO PRESSURE_ITERATION_LOOP
+! ===== 在迭代循环结束后，判断是否为 Corrector 步并输出统计 =====
+IF (CORRECTOR .AND. WRITE_DATA .AND. COUNT_POISSON > 0) THEN
 
+   WRITE(*,*) ' >>> ICYC=', ICYC, ' Corrector Step: Poisson solver called ', COUNT_POISSON, &
+              ' times, Step Time = ', TOTAL_T_POISSON, ' seconds.'
+   ! 全局累计统计（校正步）
+   IF (GLOBAL_COUNT_POISSON > 0) THEN
+      WRITE(*,*) ' >>> [Cumulative Corrector] Total Calls = ', GLOBAL_COUNT_POISSON, &
+                 ', Cumulative Time = ', GLOBAL_TOTAL_T_POISSON, ' seconds,', &
+                 ' Avg Time/call = ', GLOBAL_TOTAL_T_POISSON/REAL(GLOBAL_COUNT_POISSON,EB), ' seconds.'
+   ENDIF
+   ! 全局累计统计（所有步：预测+校正）
+   IF (ALL_COUNT_POISSON > 0) THEN
+      WRITE(*,*) ' >>> [Cumulative All] Total Calls = ', ALL_COUNT_POISSON, &
+                 ', Cumulative Time = ', ALL_TOTAL_T_POISSON, ' seconds,', &
+                 ' Avg Time/call = ', ALL_TOTAL_T_POISSON/REAL(ALL_COUNT_POISSON,EB), ' seconds.'
+   ENDIF
+ENDIF
 
+! ===== 模拟结束时的最终汇总报告 =====
+IF (CORRECTOR .AND. (STOP_STATUS/=NO_STOP .OR. (T+DT)>=T_END)) THEN
+   WRITE(*,'(A)') '========================================================'
+   WRITE(*,'(A)') ' Poisson Solver Final Statistics Report'
+   WRITE(*,'(A)') '========================================================'
+   WRITE(*,'(A,I0,A)') ' Corrector Step Total Calls : ', GLOBAL_COUNT_POISSON, ' times'
+   WRITE(*,'(A,ES12.5,A)') ' Corrector Step Total Time  : ', GLOBAL_TOTAL_T_POISSON, ' seconds'
+   IF (GLOBAL_COUNT_POISSON > 0) THEN
+      WRITE(*,'(A,ES12.5,A)') ' Corrector Avg Time/Call    : ', &
+         GLOBAL_TOTAL_T_POISSON/REAL(GLOBAL_COUNT_POISSON,EB), ' seconds'
+   ENDIF
+   WRITE(*,'(A,I0,A)') ' All Steps Total Calls      : ', ALL_COUNT_POISSON, ' times'
+   WRITE(*,'(A,ES12.5,A)') ' All Steps Total Time       : ', ALL_TOTAL_T_POISSON, ' seconds'
+   IF (ALL_COUNT_POISSON > 0) THEN
+      WRITE(*,'(A,ES12.5,A)') ' All Steps Avg Time/Call    : ', &
+         ALL_TOTAL_T_POISSON/REAL(ALL_COUNT_POISSON,EB), ' seconds'
+   ENDIF
+   WRITE(*,'(A)') '========================================================'
+ENDIF
 ! ----- 迭代结束后，保存新压力 -----
 
 IF (WRITE_DATA) THEN
@@ -1639,23 +1702,6 @@ IF (WRITE_DATA) THEN
          WRITE(LU_ERR,*) 'ERROR: Cannot open CSV file ', TRIM(CSV_FILE), ' IOSTAT=', IERR
       END IF
 
-      ! 4. 写二进制
-      ! IERR = 0
-      ! IO_UNIT = -1
-      ! OPEN(NEWUNIT=IO_UNIT, FILE=TRIM(BIN_FILE), STATUS='REPLACE', FORM='UNFORMATTED', ACCESS='STREAM', IOSTAT=IERR)
-      ! IF (IERR == 0) THEN
-      !    NFEAT = 4_INT32
-      !    WRITE(IO_UNIT) NFEAT
-      !    WRITE(IO_UNIT) M%IBAR, M%JBAR, M%KBAR
-      !    ! 直接将 3D 张量以 Stream 形式冲入硬盘，极为高效
-      !    WRITE(IO_UNIT) EXPORT_DATA(NM)%DIV
-      !    WRITE(IO_UNIT) EXPORT_DATA(NM)%RHS
-      !    WRITE(IO_UNIT) EXPORT_DATA(NM)%POLD
-      !    WRITE(IO_UNIT) EXPORT_DATA(NM)%PNEW
-      !    CLOSE(IO_UNIT)
-      ! ELSE
-      !    WRITE(LU_ERR,*) 'ERROR: Cannot open binary file ', TRIM(BIN_FILE), ' IOSTAT=', IERR
-      ! END IF
    ENDDO
    
    ! 写完后立即释放内存，保持低开销
