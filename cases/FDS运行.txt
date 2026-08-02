@@ -5,7 +5,7 @@ mpiexec -np 1 E:\2CODE\AaaaaIi\4FireFDS\2cavityPDE\T_400_0\steady\fds_impi_intel
 输出计算
 
 
-mpiexec -np 1 E:\2CODE\AaaaaIi\4FireFDS\2cavityPDE\T_400_0\steady\steady1_310Kmesh2\12Back0T40C\fds_impi_intel_win.exe Thot_40_0.fds 
+mpiexec -np 1 E:\2CODE\AaaaaIi\4FireFDS\2cavityPDE\T_400_0\steady\steady1_310Kmesh2\FDSdataT40C\fds_impi_intel_win.exe Thot_40_0.fds 
 
 
 提交现存更改
@@ -16,10 +16,10 @@ git status
 git add .
 
 # 3. 提交更改（填写你的提交说明）
-git commit -m "oldCnnFortran_C_Python替代 "
+git commit -m "统一线程设置修改launch.json计时统计 "
 
 # 4. 推送到远程 fireT 分支
-git push origin oldBackup_newCnn
+git push origin SaveData_Div_Rhs_Pold_Pnew
 
 
 To https://github.com/LIJI-Qun/fds.git
@@ -63,7 +63,7 @@ g++ -O3 -Wall -shared -std=c++11 -IE:\ProgramData\miniconda3\envs\torch2_env\Inc
 
 
 ONNX文件
-g++ -O3 -Wall -shared -std=c++17 -I "E:\Program Files\onnxruntime-win-x64-1.27.1\include" 3cnn2CRPedShortTime2.cpp -o cnn2CRPed.dll "-Wl,--out-implib,cnn2CRPed.lib" -L "E:\Program Files\onnxruntime-win-x64-1.27.1\lib" -lonnxruntime
+g++ -O3 -Wall -shared -std=c++17 -I "E:\Program Files\onnxruntime-win-x64-1.27.1\include" 3cnn3ShortTime3.cpp -o cnn2CRPed.dll "-Wl,--out-implib,cnn2CRPed.lib" -L "E:\Program Files\onnxruntime-win-x64-1.27.1\lib" -lonnxruntime
 
 把 E:\Program Files\onnxruntime-win-x64-1.27.1\lib\onnxruntime.dll 丢进 FDS 运行目录（也就是和刚生成的 cnn2CRPed.dll 放在一起）。
 

@@ -1,0 +1,12 @@
+1当前NN还不具备瞬态预测能力（即便是20s之后可是预测基本处于稳态过程）
+2相同NN预测结果受数据影响较大（更改数据集从0-50s训练）
+3基于ONNX得到权重网络结合模型，cpp调用.onnx另外需要
+注意launch.joson中onnxruntime.dll位置
+注意makefile中的.lib位置
+impi_intel_win_db :  E:/2CODE/AaaaaIi/4FireFDS/2cavityPDE/T_400_0/steady/TTT/2BackTonnx/cnn2CRPed.lib
+
+①外部插值适配
+模型：采用40*40数据集训练得到的best_pressure_delta_40x40_base24.pth得到的unet_cfd_engine.onnx
+重新编写预测代码，先把FDS中输出的20*20网格下的Div, RHS, H_old，将 20×20 的原始场通过插值得到 40×40，再转换回20×20输出
+cnn3ShortTime2.cpp 仅仅20*20插值到40*40运行发散
+cnn3ShortTime3.cpp 考虑delta_stats_cache_20x20.npz和40x40.npz运行之前需要输出python 3cnn3ShortTime3python.py

@@ -1578,7 +1578,7 @@ PRESSURE_ITERATION_LOOP: DO
 
    IF (MAXVAL(PRESSURE_ERROR_MAX)<PRESSURE_TOLERANCE) ITERATE_BAROCLINIC_TERM = .FALSE.
       ! =========================================================================
-   ! 【强制退出逻辑】: 如果 USED_CNN 为真，或者满足 FDS 原本的收敛条件，就直接退出
+   ! 【强制退出】: 如果 USED_CNN 为真，或者满足 FDS 原本的收敛条件，就直接退出
    ! =========================================================================
    IF (USED_CNN .OR. &
        (MAXVAL(PRESSURE_ERROR_MAX)<PRESSURE_TOLERANCE .AND. &
