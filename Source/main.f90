@@ -1388,6 +1388,7 @@ USE CC_SCALARS, ONLY : GET_LINKED_FV
 USE, INTRINSIC :: ISO_FORTRAN_ENV, ONLY : INT32
 INTEGER :: NM_MAX_V,NM_MAX_P
 REAL(EB) :: TNOW,VELOCITY_ERROR_MAX_OLD,PRESSURE_ERROR_MAX_OLD
+REAL(EB) :: QX_LOW,QX_HIGH,QZ_LOW,QZ_HIGH
 ! 为泊松求解器计时变量声明类型 
 REAL(EB) :: T_START_POISSON, T_ELAPSED_POISSON
 REAL(EB) :: TOTAL_T_POISSON, AVERAGE_T_POISSON
@@ -1405,7 +1406,7 @@ CHARACTER(255) :: CSV_FILE, BIN_FILE
 
 ! 定义一个结构体，把 4 个 3D 数组打包
 TYPE :: EXPORT_DATA_TYPE
-   REAL(EB), ALLOCATABLE, DIMENSION(:,:,:) :: DIV, RHS, POLD, PNEW
+   REAL(EB), ALLOCATABLE, DIMENSION(:,:,:) :: USTAR,VSTAR, WSTAR, DIV, RHS, TEMP, RHO, POLD, PNEW
 END TYPE EXPORT_DATA_TYPE
 ! 声明大小为 NMESHES 的一维数组，每个元素对应一个网格的数据
 TYPE(EXPORT_DATA_TYPE), ALLOCATABLE, DIMENSION(:) :: EXPORT_DATA
@@ -1425,14 +1426,14 @@ IF(CC_IBM) THEN
    ENDDO
 ENDIF
 
-! ---> 触发条件（稳态时间窗口限制 40s - 60s）<---
+! ---> 触发条件（稳态时间窗口限制 20s - 30s）<---
 WRITE_DATA = .FALSE.
 IF (CORRECTOR) THEN
-   ! 增加物理时间限制：T 大于等于 40s 且 小于等于 60s
+   ! 增加物理时间限制：T 大于等于 40s 且 小于等于 50s
    IF (ICYC==1 .OR. (T+DT)>=T_END) WRITE_DATA = .TRUE.  
    
-   IF (T >=20.0_EB .AND. T <= 50.0_EB) THEN
-      IF (MOD(ICYC,400)==0) WRITE_DATA = .TRUE. 
+   IF (T >=20.0_EB .AND. T <= 30.0_EB) THEN
+      IF (MOD(ICYC,10)==0) WRITE_DATA = .TRUE.
       WRITE(*,*) ' Exporting training data at T=', T, 's, ICYC=', ICYC  
    ENDIF
 
@@ -1446,25 +1447,43 @@ IF (WRITE_DATA) THEN
       M => MESHES(NM)
       
       ! 独立清理当前网格的内存
+      IF (ALLOCATED(EXPORT_DATA(NM)%USTAR)) DEALLOCATE(EXPORT_DATA(NM)%USTAR)
+      IF (ALLOCATED(EXPORT_DATA(NM)%VSTAR)) DEALLOCATE(EXPORT_DATA(NM)%VSTAR)
+      IF (ALLOCATED(EXPORT_DATA(NM)%WSTAR)) DEALLOCATE(EXPORT_DATA(NM)%WSTAR)
       IF (ALLOCATED(EXPORT_DATA(NM)%DIV))  DEALLOCATE(EXPORT_DATA(NM)%DIV)
       IF (ALLOCATED(EXPORT_DATA(NM)%RHS))  DEALLOCATE(EXPORT_DATA(NM)%RHS)
+      IF (ALLOCATED(EXPORT_DATA(NM)%TEMP)) DEALLOCATE(EXPORT_DATA(NM)%TEMP)
+      IF (ALLOCATED(EXPORT_DATA(NM)%RHO))  DEALLOCATE(EXPORT_DATA(NM)%RHO)
       IF (ALLOCATED(EXPORT_DATA(NM)%POLD)) DEALLOCATE(EXPORT_DATA(NM)%POLD)
       IF (ALLOCATED(EXPORT_DATA(NM)%PNEW)) DEALLOCATE(EXPORT_DATA(NM)%PNEW)
       
       ! 为当前网格分配正确的尺寸
+      ALLOCATE(EXPORT_DATA(NM)%USTAR(M%IBAR, M%JBAR, M%KBAR))
+      ALLOCATE(EXPORT_DATA(NM)%VSTAR(M%IBAR, M%JBAR, M%KBAR))
+      ALLOCATE(EXPORT_DATA(NM)%WSTAR(M%IBAR, M%JBAR, M%KBAR))
       ALLOCATE(EXPORT_DATA(NM)%DIV(M%IBAR, M%JBAR, M%KBAR))
       ALLOCATE(EXPORT_DATA(NM)%RHS(M%IBAR, M%JBAR, M%KBAR))
+      ALLOCATE(EXPORT_DATA(NM)%TEMP(M%IBAR, M%JBAR, M%KBAR))
+      ALLOCATE(EXPORT_DATA(NM)%RHO(M%IBAR, M%JBAR, M%KBAR))
       ALLOCATE(EXPORT_DATA(NM)%POLD(M%IBAR, M%JBAR, M%KBAR))
       ALLOCATE(EXPORT_DATA(NM)%PNEW(M%IBAR, M%JBAR, M%KBAR))
       
       ! 切片赋值，防止边界越界
       IF (PREDICTOR) THEN
+         EXPORT_DATA(NM)%USTAR = M%US(1:M%IBAR, 1:M%JBAR, 1:M%KBAR)
+         EXPORT_DATA(NM)%VSTAR = M%VS(1:M%IBAR, 1:M%JBAR, 1:M%KBAR)
+         EXPORT_DATA(NM)%WSTAR = M%WS(1:M%IBAR, 1:M%JBAR, 1:M%KBAR)
          EXPORT_DATA(NM)%DIV  = M%DS(1:M%IBAR, 1:M%JBAR, 1:M%KBAR)
          EXPORT_DATA(NM)%POLD = M%H(1:M%IBAR,  1:M%JBAR, 1:M%KBAR)
       ELSE
+         EXPORT_DATA(NM)%USTAR = M%US(1:M%IBAR, 1:M%JBAR, 1:M%KBAR)
+         EXPORT_DATA(NM)%VSTAR = M%VS(1:M%IBAR, 1:M%JBAR, 1:M%KBAR)
+         EXPORT_DATA(NM)%WSTAR = M%WS(1:M%IBAR, 1:M%JBAR, 1:M%KBAR)
          EXPORT_DATA(NM)%DIV  = M%D(1:M%IBAR,  1:M%JBAR, 1:M%KBAR)
          EXPORT_DATA(NM)%POLD = M%HS(1:M%IBAR, 1:M%JBAR, 1:M%KBAR)
       ENDIF
+      EXPORT_DATA(NM)%TEMP = M%TMP(1:M%IBAR, 1:M%JBAR, 1:M%KBAR)
+      EXPORT_DATA(NM)%RHO  = M%RHOS(1:M%IBAR, 1:M%JBAR, 1:M%KBAR)
    ENDDO
 ENDIF
 
@@ -1617,23 +1636,23 @@ PRESSURE_ITERATION_LOOP: DO
 
 ENDDO PRESSURE_ITERATION_LOOP
 ! ===== 在迭代循环结束后，判断是否为 Corrector 步并输出统计 =====
-IF (CORRECTOR .AND. WRITE_DATA .AND. COUNT_POISSON > 0) THEN
+! IF (CORRECTOR .AND. WRITE_DATA .AND. COUNT_POISSON > 0) THEN
 
-   WRITE(*,*) ' >>> ICYC=', ICYC, ' Corrector Step: Poisson solver called ', COUNT_POISSON, &
-              ' times, Step Time = ', TOTAL_T_POISSON, ' seconds.'
-   ! 全局累计统计（校正步）
-   IF (GLOBAL_COUNT_POISSON > 0) THEN
-      WRITE(*,*) ' >>> [Cumulative Corrector] Total Calls = ', GLOBAL_COUNT_POISSON, &
-                 ', Cumulative Time = ', GLOBAL_TOTAL_T_POISSON, ' seconds,', &
-                 ' Avg Time/call = ', GLOBAL_TOTAL_T_POISSON/REAL(GLOBAL_COUNT_POISSON,EB), ' seconds.'
-   ENDIF
-   ! 全局累计统计（所有步：预测+校正）
-   IF (ALL_COUNT_POISSON > 0) THEN
-      WRITE(*,*) ' >>> [Cumulative All] Total Calls = ', ALL_COUNT_POISSON, &
-                 ', Cumulative Time = ', ALL_TOTAL_T_POISSON, ' seconds,', &
-                 ' Avg Time/call = ', ALL_TOTAL_T_POISSON/REAL(ALL_COUNT_POISSON,EB), ' seconds.'
-   ENDIF
-ENDIF
+!    WRITE(*,*) ' >>> ICYC=', ICYC, ' Corrector Step: Poisson solver called ', COUNT_POISSON, &
+!               ' times, Step Time = ', TOTAL_T_POISSON, ' seconds.'
+!    ! 全局累计统计（校正步）
+!    IF (GLOBAL_COUNT_POISSON > 0) THEN
+!       WRITE(*,*) ' >>> [Cumulative Corrector] Total Calls = ', GLOBAL_COUNT_POISSON, &
+!                  ', Cumulative Time = ', GLOBAL_TOTAL_T_POISSON, ' seconds,', &
+!                  ' Avg Time/call = ', GLOBAL_TOTAL_T_POISSON/REAL(GLOBAL_COUNT_POISSON,EB), ' seconds.'
+!    ENDIF
+!    ! 全局累计统计（所有步：预测+校正）
+!    IF (ALL_COUNT_POISSON > 0) THEN
+!       WRITE(*,*) ' >>> [Cumulative All] Total Calls = ', ALL_COUNT_POISSON, &
+!                  ', Cumulative Time = ', ALL_TOTAL_T_POISSON, ' seconds,', &
+!                  ' Avg Time/call = ', ALL_TOTAL_T_POISSON/REAL(ALL_COUNT_POISSON,EB), ' seconds.'
+!    ENDIF
+! ENDIF
 
 ! ===== 模拟结束时的最终汇总报告 =====
 IF (CORRECTOR .AND. (STOP_STATUS/=NO_STOP .OR. (T+DT)>=T_END)) THEN
@@ -1684,16 +1703,25 @@ IF (WRITE_DATA) THEN
       IO_UNIT = -1
       OPEN(NEWUNIT=IO_UNIT, FILE=TRIM(CSV_FILE), STATUS='REPLACE', FORM='FORMATTED', IOSTAT=IERR)
       IF (IERR == 0) THEN
-         WRITE(IO_UNIT, '(A)') 'I,J,K,X,Y,Z,Div,RHS,P_old,P_new'
+         WRITE(IO_UNIT, '(A)') 'I,J,K,X,Y,Z,Ustar,Vstar,Wstar,D_target,RHS,T,RHO,P_old,P_new,DT,' // &
+            'QX_LOW,QX_HIGH,QZ_LOW,QZ_HIGH,RDX_CELL,RDZ_CELL,RDXN_LOW,RDXN_HIGH,RDZN_LOW,RDZN_HIGH'
          ! Fortran 是列主序，最内层循环应该是 I，然后 J，最外层 K。
          DO KK = 1, M%KBAR
             DO JJ = 1, M%JBAR
                DO II = 1, M%IBAR
                   IF (M%CELL(M%CELL_INDEX(II,JJ,KK))%SOLID) CYCLE
-                  WRITE(IO_UNIT, '(I0,",",I0,",",I0,",",7(ES15.7,:,","))') &
-                     II, JJ, KK, M%XC(II), M%YC(JJ), M%ZC(KK),     &
-                     EXPORT_DATA(NM)%DIV(II,JJ,KK), EXPORT_DATA(NM)%RHS(II,JJ,KK),  &
-                     EXPORT_DATA(NM)%POLD(II,JJ,KK), EXPORT_DATA(NM)%PNEW(II,JJ,KK)
+                  QX_LOW  = 0.5_EB*(M%U(II-1,JJ,KK) + M%US(II-1,JJ,KK) - DT*M%FVX(II-1,JJ,KK))
+                  QX_HIGH = 0.5_EB*(M%U(II  ,JJ,KK) + M%US(II  ,JJ,KK) - DT*M%FVX(II  ,JJ,KK))
+                  QZ_LOW  = 0.5_EB*(M%W(II,JJ,KK-1) + M%WS(II,JJ,KK-1) - DT*M%FVZ(II,JJ,KK-1))
+                  QZ_HIGH = 0.5_EB*(M%W(II,JJ,KK  ) + M%WS(II,JJ,KK  ) - DT*M%FVZ(II,JJ,KK  ))
+                  WRITE(IO_UNIT, '(I0,",",I0,",",I0,",",23(ES15.7,:,","))') &
+                      II, JJ, KK, M%XC(II), M%YC(JJ), M%ZC(KK),     &
+                      EXPORT_DATA(NM)%USTAR(II,JJ,KK),EXPORT_DATA(NM)%VSTAR(II,JJ,KK), EXPORT_DATA(NM)%WSTAR(II,JJ,KK), &
+                      EXPORT_DATA(NM)%DIV(II,JJ,KK), EXPORT_DATA(NM)%RHS(II,JJ,KK),     &
+                      EXPORT_DATA(NM)%TEMP(II,JJ,KK), EXPORT_DATA(NM)%RHO(II,JJ,KK),    &
+                      EXPORT_DATA(NM)%POLD(II,JJ,KK), EXPORT_DATA(NM)%PNEW(II,JJ,KK), DT, &
+                      QX_LOW,QX_HIGH,QZ_LOW,QZ_HIGH,M%RDX(II),M%RDZ(KK), &
+                      M%RDXN(II-1),M%RDXN(II),M%RDZN(KK-1),M%RDZN(KK)
                ENDDO
             ENDDO
          ENDDO

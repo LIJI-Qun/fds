@@ -18,10 +18,10 @@
           "request": "launch",
           "program": "${workspaceFolder}\\Build\\impi_intel_win_db\\fds_impi_intel_win_db.exe",
           "args": [
-              "E:/2CODE/AaaaaIi/4FireFDS/2cavityPDE/T_400_0/steady/steady1_310Kmesh2/FDSdataT40C/Thot_40_0.fds"
+              "F:/2CcodExap/AaaaaIi/4FireFDS/2cavityPDE/TTTs/Tdata/Thot_40_0.fds"
           ],
           "stopAtEntry": false,
-          "cwd": "E:/2CODE/AaaaaIi/4FireFDS/2cavityPDE/T_400_0/steady/steady1_310Kmesh2/FDSdataT40C",
+          "cwd": "F:/2CcodExap/AaaaaIi/4FireFDS/2cavityPDE/TTTs/Tdata",
           "console": "integratedTerminal",
           "symbolSearchPath": "${workspaceFolder}\\Build\\impi_intel_win_db",
           "logging": { "moduleLoad": true },
@@ -38,10 +38,10 @@
           "request": "launch",
           "program": "${workspaceFolder}\\Build\\impi_intel_win\\fds_impi_intel_win.exe",
           "args": [
-              "E:/2CODE/AaaaaIi/4FireFDS/2cavityPDE/T_400_0/steady/steady1_310K/FDSdataT40C/Thot_40_0.fds"
+              "F:/2CcodExap/AaaaaIi/4FireFDS/2cavityPDE/TTTs/Tdata/Thot_40_0.fds"
           ],
           "stopAtEntry": false,
-          "cwd": "E:/2CODE/AaaaaIi/4FireFDS/2cavityPDE/T_400_0/steady/steady1_310K/FDSdataT40C",
+          "cwd": "F:/2CcodExap/AaaaaIi/4FireFDS/2cavityPDE/TTTs/Tdata",
           "console": "integratedTerminal",
           "environment": [
               { "name": "OMP_NUM_THREADS", "value": "1" },
@@ -53,7 +53,6 @@
           // ===== 3. 经 mpiexec 启动 (MPI 并行) =====
           // 同时控制 MPI进程数 和 OpenMP线程数
           // program 指向 mpiexec, fds.exe 作为参数传入
-          //
           // -np 4           → 4 个 MPI 进程 (需 .fds 中有 ≥4 个 &MESH)
           // -env OMP_NUM_THREADS 1 → 每个MPI进程内 1 个OpenMP线程 (纯MPI)
           //
@@ -67,10 +66,10 @@
               "-np", "4",
               "-env", "OMP_NUM_THREADS", "1",
               "${workspaceFolder}\\Build\\impi_intel_win\\fds_impi_intel_win.exe",
-              "E:/2CODE/AaaaaIi/4FireFDS/2cavityPDE/T_400_0/steady/steady1_310K/dataT40/Thot_40_0.fds"
+              "F:/2CcodExap/AaaaaIi/4FireFDS/2cavityPDE/T_400_0/steady/TTTfds/steady1_310KMESH4/FDSdataT40Cmesh4/Thot_40_0.fds"
           ],
           "stopAtEntry": false,
-          "cwd": "E:/2CODE/AaaaaIi/4FireFDS/2cavityPDE/T_400_0/steady/steady1_310K/dataT40",
+          "cwd": "F:/2CcodExap/AaaaaIi/4FireFDS/2cavityPDE/T_400_0/steady/TTTfds/steady1_310KMESH4/FDSdataT40Cmesh4/dataT40",
           "console": "integratedTerminal",
           "environment": []
       },
@@ -87,10 +86,10 @@
               "-env", "OMP_NUM_THREADS", "2",
               "-env", "OMP_STACKSIZE", "16M",
               "${workspaceFolder}\\Build\\impi_intel_win\\fds_impi_intel_win.exe",
-              "E:/2CODE/AaaaaIi/4FireFDS/2cavityPDE/T_400_0/steady/steady1_310K/dataT40/Thot_40_0.fds"
+              "F:/2CcodExap/AaaaaIi/4FireFDS/2cavityPDE/T_400_0/steady/TTTfds/steady1_310KMESH4/FDSdataT40Cmesh4/Thot_40_0.fds"
           ],
           "stopAtEntry": false,
-          "cwd": "E:/2CODE/AaaaaIi/4FireFDS/2cavityPDE/T_400_0/steady/steady1_310K/dataT40",
+          "cwd": "F:/2CcodExap/AaaaaIi/4FireFDS/2cavityPDE/T_400_0/steady/TTTfds/steady1_310KMESH4/FDSdataT40Cmesh4/dataT40",
           "console": "integratedTerminal",
           "environment": []
       },
