@@ -16,15 +16,15 @@
       "type": "cppvsdbg",//cppvsdbg 表示使用微软的 C++ 调试器（MSVC），通常用于 Windows 下编译的程序。
       "request": "launch",
       "program": "${workspaceFolder}\\Build\\impi_intel_win_db\\fds_impi_intel_win_db.exe",
-      "args": ["E:/2CODE/AaaaaIi/4FireFDS/2cavityPDE/T_400_0/steady/TTT/2BackTonnx/Thot_40_0.fds"],//传递给 FDS 的命令行参数，FDS 模拟的输入文件（.fds）路径
+      "args": ["F:/2CcodExap/AaaaaIi/4FireFDS/2cavityPDE/TTTs/Tpred/TTpredic/Thot_40_0.fds"],//传递给 FDS 的命令行参数，FDS 模拟的输入文件（.fds）路径
       "stopAtEntry": false,
-      "cwd": "E:/2CODE/AaaaaIi/4FireFDS/2cavityPDE/T_400_0/steady/TTT/2BackTonnx",//当前工作目录
+      "cwd": "F:/2CcodExap/AaaaaIi/4FireFDS/2cavityPDE/TTTs/Tpred/TTpredic",//当前工作目录
       "environment": [
         // 将 Miniconda 的 PyTorch 环境路径添加到系统 PATH 中。
         //FDS 底层通过 C API 嵌入 Python 时，需要动态加载 python3x.dll。 FDS 启动时能找到 python3x.dll
         {
             "name": "PATH",
-            "value": "E:\\Program Files\\onnxruntime-win-x64-1.27.1\\lib;${env:PATH}"
+            "value": "G:\\Program Files\\onnxruntime-win-x64-1.27.1\\onnxruntime-win-x64-1.27.1\\lib;${env:PATH}"
         },
         { "name": "OMP_NUM_THREADS", "value": "4" },//FDS 使用 OpenMP 进行多线程并行计算
         { "name": "OMP_STACKSIZE", "value": "16M" }//设置 OpenMP 线程的栈大小为 16MB
@@ -41,16 +41,16 @@
       "type": "cppvsdbg",
       "request": "launch",
       "program": "${workspaceFolder}\\Build\\impi_intel_win\\fds_impi_intel_win.exe",
-      "args": ["E:/2CODE/AaaaaIi/4FireFDS/2cavityPDE/T_400_0/steady/TTT/2BackTonnx/Thot_40_0.fds"],
+      "args": ["F:/2CcodExap/AaaaaIi/4FireFDS/2cavityPDE/TTTs/Tpred/TTpredic/Thot_40_0.fds"],
       "stopAtEntry": false,
-      "cwd": "E:/2CODE/AaaaaIi/4FireFDS/2cavityPDE/T_400_0/steady/TTT/2BackTonnx",
+      "cwd": "F:/2CcodExap/AaaaaIi/4FireFDS/2cavityPDE/TTTs/Tpred/TTpredic",
       "environment": [
         // 同样为 Release 版本配置 ONNX Runtime 环境变量
         {
             "name": "PATH",
-            "value": "E:\\Program Files\\onnxruntime-win-x64-1.27.1\\lib;${env:PATH}"
+            "value": "G:\\Program Files\\onnxruntime-win-x64-1.27.1\\onnxruntime-win-x64-1.27.1\\lib;${env:PATH}"
         },
-        { "name": "OMP_NUM_THREADS", "value": "4" },
+        { "name": "OMP_NUM_THREADS", "value": "6" },
         { "name": "OMP_STACKSIZE", "value": "16M" }
       ],
       "console": "integratedTerminal"
@@ -71,13 +71,13 @@
       "request": "launch",
       "program": "mpiexec",
       "args": [
-          "-np", "4",
+          "-np", "6",
           "-env", "OMP_NUM_THREADS", "1",
           "${workspaceFolder}\\Build\\impi_intel_win\\fds_impi_intel_win.exe",
-          "E:/2CODE/AaaaaIi/4FireFDS/2cavityPDE/T_400_0/steady/steady1_310K/dataT40/Thot_40_0.fds"
+          "F:/2CcodExap/AaaaaIi/4FireFDS/2cavityPDE/TTTs/Thot_40_0.fds"
       ],
       "stopAtEntry": false,
-      "cwd": "E:/2CODE/AaaaaIi/4FireFDS/2cavityPDE/T_400_0/steady/steady1_310K/dataT40",
+      "cwd": "F:/2CcodExap/AaaaaIi/4FireFDS/2cavityPDE/TTTs",
       "console": "integratedTerminal",
       "environment": []
     },

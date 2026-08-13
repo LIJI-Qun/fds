@@ -12,7 +12,7 @@ MODULE CNN_INTERFACE
       REAL(C_FLOAT), DIMENSION(*) :: input, output
       INTEGER(C_INT), VALUE :: B, C, H, W, rank
     END SUBROUTINE
-    ! --- 新增打印接口 ---
+
     SUBROUTINE cnn_print_summary(rank) BIND(C, name="cnn_print_summary")
       IMPORT :: C_INT
       INTEGER(C_INT), VALUE :: rank
@@ -43,7 +43,7 @@ PUBLIC PRESSURE_SOLVER_COMPUTE_RHS, PRESSURE_SOLVER_FFT, TUNNEL_POISSON_SOLVER, 
 ! ================== CNN 全局状态变量 ==================
 LOGICAL, SAVE :: CNN_ACTIVE = .TRUE.
 INTEGER, SAVE :: CNN_COOLDOWN = 0
-REAL(EB), PARAMETER :: CNN_RES_TOL = 0.5_EB
+REAL(EB), PARAMETER :: CNN_RES_TOL = 100.0_EB
 REAL(C_FLOAT), ALLOCATABLE, SAVE, TARGET :: CNN_IN(:), CNN_OUT(:)
 INTEGER(C_INT), SAVE :: CNN_B, CNN_C, CNN_H, CNN_W
 LOGICAL, SAVE :: ERROR_CSV_INITIALIZED = .FALSE.
@@ -358,28 +358,48 @@ END SELECT
 T_USED(5)=T_USED(5)+CURRENT_TIME()-TNOW
 END SUBROUTINE PRESSURE_SOLVER_COMPUTE_RHS
 
-SUBROUTINE PRESSURE_SOLVER_CNN(NM)
-   USE MESH_POINTERS               ! 提供 HS, D, PRHS, XC, YC, ZC 等
+SUBROUTINE PRESSURE_SOLVER_CNN(NM, DT)
+   ! 引入 FDS 的全局网格指针，获取速度 (U/V/W)、温度 (TMP)、密度 (RHO)、散度 (D) 等变量
+   USE MESH_POINTERS               
    USE COMP_FUNCTIONS, ONLY: CURRENT_TIME
-   USE GLOBAL_CONSTANTS, ONLY: T_USED, MY_RANK  ! 引入 T_USED 用于原生耗时统计，MY_RANK 用于控制输出
-
+   ! 引入 PREDICTOR 用于判断当前处于预测步还是校正步
+   USE GLOBAL_CONSTANTS, ONLY: T_USED, MY_RANK, PREDICTOR  
    INTEGER, INTENT(IN) :: NM
+   REAL(EB), INTENT(IN) :: DT       ! 接收时间步 DT
    INTEGER :: II, JJ, KK, IDX
-   REAL(EB) :: DIV_VAL, P_OLD_VAL
    INTEGER :: REQ_SIZE_IN, REQ_SIZE_OUT
    
-   ! 注意：这里只保留局部使用的临时变量，累加变量已经在 Module 顶部声明了
+   ! 用于智能获取 Predictor / Corrector 不同阶段物理量数组的指针
+   REAL(EB), POINTER, DIMENSION(:,:,:) :: UU, VV, WW, HP, RHOP
+   
+   ! 计时变量
    REAL(EB) :: CURRENT_PACK_TIME, CURRENT_CALL_TIME
-   REAL(EB) :: TNOW                ! 记录整个子程序的开始时间
-   REAL(EB) :: T_PACK_START, T_PACK_END  ! 记录数据打包时间
-   REAL(EB) :: T_CALL_START, T_CALL_END  ! 记录 C++/Python 调用总时间
+   REAL(EB) :: TNOW                
+   REAL(EB) :: T_PACK_START, T_PACK_END  
+   REAL(EB) :: T_CALL_START, T_CALL_END  
 
-   TNOW = CURRENT_TIME()           ! <----- 1. 开始记录 CNN 求解器总时间
+   TNOW = CURRENT_TIME()           
+   CALL POINT_TO_MESH(NM)          
 
-   CALL POINT_TO_MESH(NM)          ! 确保当前网格指针正确
+   ! ==========================================================
+   ! 根据预估/校正步绑定对应指针 (与原生 COMPUTE_RHS 保持绝对一致)
+   ! ==========================================================
+   IF (PREDICTOR) THEN
+      UU => U
+      VV => V
+      WW => W
+      HP => H
+      RHOP => RHO
+   ELSE
+      UU => US
+      VV => VS
+      WW => WS
+      HP => HS
+      RHOP => RHOS
+   ENDIF
 
    CNN_B = 1
-   CNN_C = 6
+   CNN_C = 12       ! <---  通道数更新为 12
    CNN_H = KBAR
    CNN_W = IBAR
 
@@ -407,16 +427,22 @@ SUBROUTINE PRESSURE_SOLVER_CNN(NM)
    DO JJ = 1, JBAR
       DO KK = 1, KBAR
          DO II = 1, IBAR
-            DIV_VAL   = D(II,JJ,KK)
-            P_OLD_VAL = HS(II,JJ,KK)        ! 直接使用全局指针 HS
-
             IDX = (KK - 1) * IBAR + (II - 1)
-            CNN_IN(0 * CNN_H * CNN_W + IDX + 1) = REAL(XC(II), C_FLOAT)
-            CNN_IN(1 * CNN_H * CNN_W + IDX + 1) = REAL(YC(JJ), C_FLOAT)
-            CNN_IN(2 * CNN_H * CNN_W + IDX + 1) = REAL(ZC(KK), C_FLOAT)
-            CNN_IN(3 * CNN_H * CNN_W + IDX + 1) = REAL(DIV_VAL, C_FLOAT)
-            CNN_IN(4 * CNN_H * CNN_W + IDX + 1) = REAL(PRHS(II,JJ,KK), C_FLOAT)
-            CNN_IN(5 * CNN_H * CNN_W + IDX + 1) = REAL(P_OLD_VAL, C_FLOAT)
+           
+            ! 按照 12 通道顺序严格打包
+            ! X, Y, Z, Ustar, Vstar, Wstar, D_target, RHS, T, RHO, P_old, DT
+            CNN_IN( 0 * CNN_H * CNN_W + IDX + 1) = REAL(XC(II), C_FLOAT)
+            CNN_IN( 1 * CNN_H * CNN_W + IDX + 1) = REAL(YC(JJ), C_FLOAT)
+            CNN_IN( 2 * CNN_H * CNN_W + IDX + 1) = REAL(ZC(KK), C_FLOAT)
+            CNN_IN( 3 * CNN_H * CNN_W + IDX + 1) = REAL(UU(II,JJ,KK), C_FLOAT)
+            CNN_IN( 4 * CNN_H * CNN_W + IDX + 1) = REAL(VV(II,JJ,KK), C_FLOAT)
+            CNN_IN( 5 * CNN_H * CNN_W + IDX + 1) = REAL(WW(II,JJ,KK), C_FLOAT)
+            CNN_IN( 6 * CNN_H * CNN_W + IDX + 1) = REAL(D(II,JJ,KK), C_FLOAT)
+            CNN_IN( 7 * CNN_H * CNN_W + IDX + 1) = REAL(PRHS(II,JJ,KK), C_FLOAT)
+            CNN_IN( 8 * CNN_H * CNN_W + IDX + 1) = REAL(TMP(II,JJ,KK), C_FLOAT)  ! TMP 是 FDS 的流体温度指针
+            CNN_IN( 9 * CNN_H * CNN_W + IDX + 1) = REAL(RHOP(II,JJ,KK), C_FLOAT)
+            CNN_IN(10 * CNN_H * CNN_W + IDX + 1) = REAL(HP(II,JJ,KK), C_FLOAT)   ! P_old
+            CNN_IN(11 * CNN_H * CNN_W + IDX + 1) = REAL(DT, C_FLOAT)             ! 当前时间步长 DT
          ENDDO
       ENDDO
    ENDDO
@@ -438,19 +464,14 @@ SUBROUTINE PRESSURE_SOLVER_CNN(NM)
    CURRENT_PACK_TIME = T_PACK_END - T_PACK_START
    CURRENT_CALL_TIME = T_CALL_END - T_CALL_START
 
-   ! 更新模块全局变量
    TOTAL_T_PACK = TOTAL_T_PACK + CURRENT_PACK_TIME
    TOTAL_T_CALL = TOTAL_T_CALL + CURRENT_CALL_TIME
    CNN_CALL_COUNT = CNN_CALL_COUNT + 1
 
-   ! 每 1000 次输出一次阶段性总结 
    IF (MY_RANK == 0 .AND. MOD(CNN_CALL_COUNT, 1000) == 0) THEN
-      ! 打印标题行与总调用次数
       WRITE(*,'(A,I6,A)') ' >>> [Fortran Profiler Summary | CNN Calls: ', CNN_CALL_COUNT, ']'
-      ! 打印数据打包的总时间与平均时间
       WRITE(*,'(A,F10.6,A,F10.6)') '     -> Pack Time (s)    : Total = ', TOTAL_T_PACK, &
                                    ' | Avg = ', TOTAL_T_PACK / REAL(CNN_CALL_COUNT, EB)
-      ! 打印C++/Python调用的总时间与平均时间
       WRITE(*,'(A,F10.6,A,F10.6)') '     -> C++ Call Time (s): Total = ', TOTAL_T_CALL, &
                                    ' | Avg = ', TOTAL_T_CALL / REAL(CNN_CALL_COUNT, EB)
    ENDIF
@@ -462,23 +483,25 @@ SUBROUTINE PRESSURE_SOLVER_CNN(NM)
       DO KK = 1, KBAR
          DO II = 1, IBAR
             IDX = (KK - 1) * IBAR + (II - 1)
-            HS(II,JJ,KK) = REAL(CNN_OUT(IDX + 1), EB)
+            HP(II,JJ,KK) = REAL(CNN_OUT(IDX + 1), EB)  ! 【修改点 3】写回泛型的 HP
          ENDDO
       ENDDO
    ENDDO
 
-   ! 施加 ghost 边界条件
+   ! ==========================================================
+   ! 施加幽灵边界条件 (全将原硬编码的 HS 换成 HP)
+   ! ==========================================================
    ! X 方向
    DO KK = 1, KBAR
       DO JJ = 1, JBAR
-         IF (LBC==3 .OR. LBC==4)              HS(0,JJ,KK)    = HS(1,JJ,KK)      - DXI*BXS(JJ,KK)
-         IF (LBC==3 .OR. LBC==2 .OR. LBC==6)  HS(IBP1,JJ,KK) = HS(IBAR,JJ,KK)   + DXI*BXF(JJ,KK)
-         IF (LBC==1 .OR. LBC==2)              HS(0,JJ,KK)    =-HS(1,JJ,KK)      + 2._EB*BXS(JJ,KK)
-         IF (LBC==1 .OR. LBC==4 .OR. LBC==5)  HS(IBP1,JJ,KK) =-HS(IBAR,JJ,KK)   + 2._EB*BXF(JJ,KK)
-         IF (LBC==5 .OR. LBC==6)              HS(0,JJ,KK)    = HS(1,JJ,KK)
+         IF (LBC==3 .OR. LBC==4)              HP(0,JJ,KK)    = HP(1,JJ,KK)      - DXI*BXS(JJ,KK)
+         IF (LBC==3 .OR. LBC==2 .OR. LBC==6)  HP(IBP1,JJ,KK) = HP(IBAR,JJ,KK)   + DXI*BXF(JJ,KK)
+         IF (LBC==1 .OR. LBC==2)              HP(0,JJ,KK)    =-HP(1,JJ,KK)      + 2._EB*BXS(JJ,KK)
+         IF (LBC==1 .OR. LBC==4 .OR. LBC==5)  HP(IBP1,JJ,KK) =-HP(IBAR,JJ,KK)   + 2._EB*BXF(JJ,KK)
+         IF (LBC==5 .OR. LBC==6)              HP(0,JJ,KK)    = HP(1,JJ,KK)
          IF (LBC==0) THEN
-            HS(0,JJ,KK)    = HS(IBAR,JJ,KK)
-            HS(IBP1,JJ,KK) = HS(1,JJ,KK)
+            HP(0,JJ,KK)    = HP(IBAR,JJ,KK)
+            HP(IBP1,JJ,KK) = HP(1,JJ,KK)
          ENDIF
       ENDDO
    ENDDO
@@ -486,14 +509,14 @@ SUBROUTINE PRESSURE_SOLVER_CNN(NM)
    ! Y 方向
    DO KK = 1, KBAR
       DO II = 1, IBAR
-         IF (MBC==3 .OR. MBC==4)              HS(II,0,KK)    = HS(II,1,KK)      - DETA*BYS(II,KK)
-         IF (MBC==3 .OR. MBC==2 .OR. MBC==6)  HS(II,JBP1,KK) = HS(II,JBAR,KK)   + DETA*BYF(II,KK)
-         IF (MBC==1 .OR. MBC==2)              HS(II,0,KK)    =-HS(II,1,KK)      + 2._EB*BYS(II,KK)
-         IF (MBC==1 .OR. MBC==4 .OR. MBC==5)  HS(II,JBP1,KK) =-HS(II,JBAR,KK)   + 2._EB*BYF(II,KK)
-         IF (MBC==5 .OR. MBC==6)              HS(II,0,KK)    = HS(II,1,KK)
+         IF (MBC==3 .OR. MBC==4)              HP(II,0,KK)    = HP(II,1,KK)      - DETA*BYS(II,KK)
+         IF (MBC==3 .OR. MBC==2 .OR. MBC==6)  HP(II,JBP1,KK) = HP(II,JBAR,KK)   + DETA*BYF(II,KK)
+         IF (MBC==1 .OR. MBC==2)              HP(II,0,KK)    =-HP(II,1,KK)      + 2._EB*BYS(II,KK)
+         IF (MBC==1 .OR. MBC==4 .OR. MBC==5)  HP(II,JBP1,KK) =-HP(II,JBAR,KK)   + 2._EB*BYF(II,KK)
+         IF (MBC==5 .OR. MBC==6)              HP(II,0,KK)    = HP(II,1,KK)
          IF (MBC==0) THEN
-            HS(II,0,KK)    = HS(II,JBAR,KK)
-            HS(II,JBP1,KK) = HS(II,1,KK)
+            HP(II,0,KK)    = HP(II,JBAR,KK)
+            HP(II,JBP1,KK) = HP(II,1,KK)
          ENDIF
       ENDDO
    ENDDO
@@ -501,18 +524,18 @@ SUBROUTINE PRESSURE_SOLVER_CNN(NM)
    ! Z 方向
    DO JJ = 1, JBAR
       DO II = 1, IBAR
-         IF (NBC==3 .OR. NBC==4)              HS(II,JJ,0)    = HS(II,JJ,1)      - DZETA*BZS(II,JJ)
-         IF (NBC==3 .OR. NBC==2)              HS(II,JJ,KBP1) = HS(II,JJ,KBAR)   + DZETA*BZF(II,JJ)
-         IF (NBC==1 .OR. NBC==2)              HS(II,JJ,0)    =-HS(II,JJ,1)      + 2._EB*BZS(II,JJ)
-         IF (NBC==1 .OR. NBC==4)              HS(II,JJ,KBP1) =-HS(II,JJ,KBAR)   + 2._EB*BZF(II,JJ)
+         IF (NBC==3 .OR. NBC==4)              HP(II,JJ,0)    = HP(II,JJ,1)      - DZETA*BZS(II,JJ)
+         IF (NBC==3 .OR. NBC==2)              HP(II,JJ,KBP1) = HP(II,JJ,KBAR)   + DZETA*BZF(II,JJ)
+         IF (NBC==1 .OR. NBC==2)              HP(II,JJ,0)    =-HP(II,JJ,1)      + 2._EB*BZS(II,JJ)
+         IF (NBC==1 .OR. NBC==4)              HP(II,JJ,KBP1) =-HP(II,JJ,KBAR)   + 2._EB*BZF(II,JJ)
          IF (NBC==0) THEN
-            HS(II,JJ,0)    = HS(II,JJ,KBAR)
-            HS(II,JJ,KBP1) = HS(II,JJ,1)
+            HP(II,JJ,0)    = HP(II,JJ,KBAR)
+            HP(II,JJ,KBP1) = HP(II,JJ,1)
          ENDIF
       ENDDO
    ENDDO
    
-   ! 在子程序结束前，将整个子程序的总耗时累加到 PRES(5) 原生计时器中
+   ! 耗时统计
    T_USED(5) = T_USED(5) + CURRENT_TIME() - TNOW
       
 END SUBROUTINE PRESSURE_SOLVER_CNN

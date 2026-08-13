@@ -16,10 +16,10 @@ git status
 git add .
 
 # 3. 提交更改（填写你的提交说明）
-git commit -m "统一线程设置修改launch.json计时统计 "
+git commit -m "CNN.onnx 模型预测一一对应"
 
 # 4. 推送到远程 fireT 分支
-git push origin SaveData_Div_Rhs_Pold_Pnew
+git push origin newCnn)
 
 
 To https://github.com/LIJI-Qun/fds.git

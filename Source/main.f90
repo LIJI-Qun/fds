@@ -1387,7 +1387,7 @@ USE CC_SCALARS, ONLY : GET_LINKED_FV
 
 REAL(EB) :: TNOW,VELOCITY_ERROR_MAX_OLD,PRESSURE_ERROR_MAX_OLD
 INTEGER :: NM_MAX_V,NM_MAX_P
-LOGICAL :: USED_CNN
+LOGICAL :: USED_CNN,USED_CNNsafenet
 ! ---> 原生求解器计时变量 <---
 REAL(EB), SAVE :: TOTAL_NATIVE_TIME = 0._EB
 INTEGER, SAVE  :: NATIVE_CALL_COUNT = 0
@@ -1434,9 +1434,10 @@ PRESSURE_ITERATION_LOOP: DO
 
    ! ==================== CNN 接管 ====================
    USED_CNN = .FALSE.
+   USED_CNNsafenet = .TRUE.
    IF (CORRECTOR .AND. PRESSURE_ITERATIONS == 1) THEN
-      ! 直接使用主程序原生的物理时间变量 T，坚决不能加 T = CURRENT_TIME() !
-      IF (T >= 50.0_EB .AND. T <= 60.0_EB .AND. CNN_ACTIVE) THEN
+      ! 直接使用主程序原生的物理时间变量 T
+      IF (T >= 30.0_EB .AND. T <= 40.0_EB .AND. CNN_ACTIVE) THEN
 
          ! --- 输出控制 (开始、整千步、结束) ---
          IF (MY_RANK == 0) THEN
@@ -1444,14 +1445,14 @@ PRESSURE_ITERATION_LOOP: DO
             IF (CNN_CALL_COUNT == 0) THEN
                WRITE(*,'(A,F10.4)') ' >>> [CNN Stage] CNN solver STARTED at T = ', T
             
-            ! 2. 捕捉整 1000 步的调用
-            ELSE IF (MOD(CNN_CALL_COUNT, 4000) == 0) THEN
+            ! 2. 捕捉整 100 步的调用
+            ELSE IF (MOD(CNN_CALL_COUNT, 100) == 0) THEN
                WRITE(*,'(A,F10.4,A,I6,A)') ' >>> [CNN Stage] CNN solver running at T = ', T, ' (Calls: ', CNN_CALL_COUNT, ')'
                
             END IF
             
             ! 3. 捕捉最后一次调用 (即加上当前步长 DT 后，将超出 60.0 的接管窗口)
-            IF (T + DT > 60.0_EB) THEN
+            IF (T + DT > 40.0_EB) THEN
                WRITE(*,'(A,F10.4)') ' >>> [CNN Stage] CNN solver FINISHED at T = ', T
             ! --- 在这里触发最终的统计算法！ ---
                CALL PRINT_CNN_PROFILER_SUMMARY()
@@ -1460,7 +1461,7 @@ PRESSURE_ITERATION_LOOP: DO
          ! ------------------------------------------------
             
          DO NM = LOWER_MESH_INDEX, UPPER_MESH_INDEX
-            CALL PRESSURE_SOLVER_CNN(NM)   ! 直接预测校正步压力 HS
+            CALL PRESSURE_SOLVER_CNN(NM,DT)   ! 直接预测校正步压力 HS
          ENDDO
          CALL MESH_EXCHANGE(5)             ! 更新插值边界
          
@@ -1509,7 +1510,6 @@ PRESSURE_ITERATION_LOOP: DO
    ENDIF
 
    ! Check the residuals of the Poisson solution
-   ! (保留这里是为了记录和打印残差，看 CNN 预测的误差)
    DO NM=LOWER_MESH_INDEX,UPPER_MESH_INDEX
       SELECT CASE(PRES_FLAG)
          CASE DEFAULT
@@ -1520,73 +1520,59 @@ PRESSURE_ITERATION_LOOP: DO
    ENDDO
 
    ! ==================== 安全网回退 ====================
-   ! IF (USED_CNN) THEN
-   !    IF (MAXVAL(PRESSURE_ERROR_MAX(LOWER_MESH_INDEX:UPPER_MESH_INDEX)) > CNN_RES_TOL) THEN
-   !       CNN_ACTIVE = .FALSE.
-   !       CNN_COOLDOWN = 50
-   !       IF (MY_RANK == 0) WRITE(*,*) '>>> [Safe-Net] CNN residual too high, fallback.'
-   !       ! 恢复旧压力场，重新开始传统迭代
-   !       DO NM = LOWER_MESH_INDEX, UPPER_MESH_INDEX
-   !          MESHES(NM)%HS = MESHES(NM)%H
-   !       ENDDO
-   !       CYCLE PRESSURE_ITERATION_LOOP
-   !    ENDIF
-   ! ELSE
-   !    IF (.NOT. CNN_ACTIVE) THEN
-   !       CNN_COOLDOWN = CNN_COOLDOWN - 1
-   !       IF (CNN_COOLDOWN <= 0) THEN
-   !          CNN_ACTIVE = .TRUE.
-   !          IF (MY_RANK == 0) WRITE(*,*) '>>> [Safe-Net] CNN reactivated.'
-   !       ENDIF
-   !    ENDIF
-   ! ENDIF
+   IF (USED_CNNsafenet) THEN  
 
-   ! 原有收敛判断
-   IF (.NOT.ITERATE_PRESSURE) EXIT PRESSURE_ITERATION_LOOP
-   CALL MESH_EXCHANGE(5)
+      IF (USED_CNN) THEN
+         ! 如果网络崩溃输出 NaN，(NaN <= 0.5) 为 False，取反后变为 True，从而 100% 拦截 NaN 导致的发散！
+         IF (.NOT. (MAXVAL(PRESSURE_ERROR_MAX) <= CNN_RES_TOL)) THEN
+            CNN_ACTIVE = .FALSE.
+            CNN_COOLDOWN = 100  ! 强制进入冷却期，接下来 100 个时间步由原生 FDS 求解器负责洗刷激波
+            
+            IF (MY_RANK == 0) THEN
+               WRITE(*,'(A)') ''
+               WRITE(*,'(A,F10.4,A,E12.4)') ' >>> [Safe-Net Triggered] Time: ', T, ' | Res: ', MAXVAL(PRESSURE_ERROR_MAX)
+               WRITE(*,'(A)') ' >>> [Safe-Net] CNN diverged or produced NaN! Reverting to native FDS solver...'
+               WRITE(*,'(A)') ''
+            ENDIF
+            
+            ! 1. 将本步被 CNN 污染的校正步压力场 (HS)，无损恢复为健康的预测步压力场 (H)
+            DO NM = LOWER_MESH_INDEX, UPPER_MESH_INDEX
+               MESHES(NM)%HS(:,:,:) = MESHES(NM)%H(:,:,:)
+            ENDDO
+            
+            ! 2. 状态重置：让它以为当前时间步的迭代才刚刚开始，重置计数器
+            USED_CNN = .FALSE.
+            PRESSURE_ITERATIONS = 0
+            TOTAL_PRESSURE_ITERATIONS = TOTAL_PRESSURE_ITERATIONS - 1
+            
+            ! 3. 重新开始循环：下一次迭代将因为 CNN_ACTIVE=F，自动由高精度的原生求解器接管擦屁股！
+            CYCLE PRESSURE_ITERATION_LOOP
+         ENDIF
+      ELSE
+         ! 只在每个物理时间步的第 1 次迭代且未激活 CNN 时执行倒计时
+         IF (.NOT. CNN_ACTIVE .AND. CORRECTOR .AND. PRESSURE_ITERATIONS == 1) THEN
+            CNN_COOLDOWN = CNN_COOLDOWN - 1
+            IF (CNN_COOLDOWN <= 0) THEN
+               CNN_ACTIVE = .TRUE.
+               IF (MY_RANK == 0) THEN
+                  WRITE(*,'(A)') ''
+                  WRITE(*,'(A,F10.4)') ' >>> [Safe-Net] Cooldown finished at T = ', T
+                  WRITE(*,'(A)') ' >>> [Safe-Net] CNN reactivated! Ready to infer again.'
+                  WRITE(*,'(A)') ''
+               ENDIF
+            ENDIF
+         ENDIF
+      ENDIF
 
-   DO NM=LOWER_MESH_INDEX,UPPER_MESH_INDEX
-      CALL COMPUTE_VELOCITY_ERROR(DT,NM)
-      IF (CC_IBM) CALL CC_COMPUTE_VELOCITY_ERROR(DT,NM) 
-   ENDDO
+   ENDIF 
 
-   IF (N_MPI_PROCESSES>1) THEN
-      TNOW = CURRENT_TIME()
-      REAL_BUFFER_10(  1,LOWER_MESH_INDEX:UPPER_MESH_INDEX) = VELOCITY_ERROR_MAX(LOWER_MESH_INDEX:UPPER_MESH_INDEX)
-      REAL_BUFFER_10(  2,LOWER_MESH_INDEX:UPPER_MESH_INDEX) = PRESSURE_ERROR_MAX(LOWER_MESH_INDEX:UPPER_MESH_INDEX)
-      REAL_BUFFER_10(3:5,LOWER_MESH_INDEX:UPPER_MESH_INDEX) = VELOCITY_ERROR_MAX_LOC(1:3,LOWER_MESH_INDEX:UPPER_MESH_INDEX)
-      REAL_BUFFER_10(6:8,LOWER_MESH_INDEX:UPPER_MESH_INDEX) = PRESSURE_ERROR_MAX_LOC(1:3,LOWER_MESH_INDEX:UPPER_MESH_INDEX)
-      CALL MPI_ALLGATHERV(MPI_IN_PLACE,0,MPI_DATATYPE_NULL,REAL_BUFFER_10(1:10,1:NMESHES),&
-                          COUNTS_10,DISPLS_10,MPI_DOUBLE_PRECISION,MPI_COMM_WORLD,IERR)
-      VELOCITY_ERROR_MAX(:)         =     REAL_BUFFER_10(1,:)
-      PRESSURE_ERROR_MAX(:)         =     REAL_BUFFER_10(2,:)
-      VELOCITY_ERROR_MAX_LOC(1:3,:) = INT(REAL_BUFFER_10(3:5,:))
-      PRESSURE_ERROR_MAX_LOC(1:3,:) = INT(REAL_BUFFER_10(6:8,:))
-      T_USED(11)=T_USED(11) + CURRENT_TIME() - TNOW
-   ENDIF
-
-   IF (MY_RANK==0 .AND. VELOCITY_ERROR_FILE) THEN
-      NM_MAX_V = MAXLOC(VELOCITY_ERROR_MAX,DIM=1)
-      NM_MAX_P = MAXLOC(PRESSURE_ERROR_MAX,DIM=1)
-      WRITE(LU_VELOCITY_ERROR,'(E16.8,A,7(I7,A),E16.8,A,4(I7,A),E16.8)') T,',',ICYC,',',PRESSURE_ITERATIONS,',',&
-         TOTAL_PRESSURE_ITERATIONS,',',&
-         NM_MAX_V,',',VELOCITY_ERROR_MAX_LOC(1,NM_MAX_V),',',VELOCITY_ERROR_MAX_LOC(2,NM_MAX_V),',',&
-         VELOCITY_ERROR_MAX_LOC(3,NM_MAX_V),',',MAXVAL(VELOCITY_ERROR_MAX),',',&
-         NM_MAX_P,',',PRESSURE_ERROR_MAX_LOC(1,NM_MAX_P),',',PRESSURE_ERROR_MAX_LOC(2,NM_MAX_P),',',&
-         PRESSURE_ERROR_MAX_LOC(3,NM_MAX_P),',',MAXVAL(PRESSURE_ERROR_MAX)
-   ENDIF
-
-   IF (MAXVAL(PRESSURE_ERROR_MAX)<PRESSURE_TOLERANCE) ITERATE_BAROCLINIC_TERM = .FALSE.
-      ! =========================================================================
-   ! 【强制退出】: 如果 USED_CNN 为真，或者满足 FDS 原本的收敛条件，就直接退出
-   ! =========================================================================
+   ! 如果 USED_CNN 为真
    IF (USED_CNN .OR. &
        (MAXVAL(PRESSURE_ERROR_MAX)<PRESSURE_TOLERANCE .AND. &
         MAXVAL(VELOCITY_ERROR_MAX)<VELOCITY_TOLERANCE) .OR. &
        PRESSURE_ITERATIONS>=MAX_PRESSURE_ITERATIONS) &
-   ! IF ((MAXVAL(PRESSURE_ERROR_MAX)<PRESSURE_TOLERANCE .AND. &
-   !      MAXVAL(VELOCITY_ERROR_MAX)<VELOCITY_TOLERANCE) .OR. PRESSURE_ITERATIONS>=MAX_PRESSURE_ITERATIONS) &
       EXIT PRESSURE_ITERATION_LOOP
+
    ! 如果既不是 CNN，又没收敛，执行这里的挂起判断，然后开始下一次迭代
    IF (SUSPEND_PRESSURE_ITERATIONS .AND. ICYC>10) THEN
       IF (PRESSURE_ITERATIONS>3 .AND.  &

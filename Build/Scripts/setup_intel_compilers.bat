@@ -16,4 +16,12 @@ IF  X%SETVARS_COMPLETED% == X1 GOTO intel_envexist
   goto :eof
 
 :intel_envexist
+  :: Intel setvars.bat may rebuild PATH. Restore GNU Make afterwards so all
+  :: Windows FDS build targets can find make.exe.
+  set "GNUMAKE_BIN=G:\Program Files (x86)\GnuWin32\bin"
+  IF EXIST "%GNUMAKE_BIN%\make.exe" (
+    set "PATH=%GNUMAKE_BIN%;%PATH%"
+  ) ELSE (
+    echo ***error: GNU Make was not found at "%GNUMAKE_BIN%\make.exe"
+  )
 :eof
