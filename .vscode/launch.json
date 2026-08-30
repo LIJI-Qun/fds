@@ -50,7 +50,7 @@
             "name": "PATH",
             "value": "G:\\Program Files\\onnxruntime-win-x64-1.27.1\\onnxruntime-win-x64-1.27.1\\lib;${env:PATH}"
         },
-        { "name": "OMP_NUM_THREADS", "value": "6" },
+        { "name": "OMP_NUM_THREADS", "value": "1" },
         { "name": "OMP_STACKSIZE", "value": "16M" }
       ],
       "console": "integratedTerminal"

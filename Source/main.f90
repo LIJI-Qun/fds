@@ -1383,16 +1383,40 @@ END SUBROUTINE MPI_INITIALIZATION_CHORES
 !> \brief Perform multiple pressure solves until velocity tolerance is satisfied
 
 SUBROUTINE PRESSURE_ITERATION_SCHEME
-USE CC_SCALARS, ONLY : GET_LINKED_FV
 
-REAL(EB) :: TNOW,VELOCITY_ERROR_MAX_OLD,PRESSURE_ERROR_MAX_OLD
+USE CC_SCALARS, ONLY : GET_LINKED_FV
+USE, INTRINSIC :: ISO_FORTRAN_ENV, ONLY : INT32
 INTEGER :: NM_MAX_V,NM_MAX_P
-LOGICAL :: USED_CNN,USED_CNNsafenet
-! ---> 原生求解器计时变量 <---
-REAL(EB), SAVE :: TOTAL_NATIVE_TIME = 0._EB
-INTEGER, SAVE  :: NATIVE_CALL_COUNT = 0
-REAL(EB) :: T_START_NATIVE, T_END_NATIVE
-! -----------------------------------
+REAL(EB) :: TNOW,VELOCITY_ERROR_MAX_OLD,PRESSURE_ERROR_MAX_OLD
+REAL(EB) :: QX_LOW,QX_HIGH,QZ_LOW,QZ_HIGH
+
+! ==================== CNN 求解器变量与计时 ====================
+LOGICAL :: USED_CNN, USED_CNNsafenet
+LOGICAL, SAVE :: CNN_GRID_WARNING_ISSUED = .FALSE.
+REAL(EB) :: CNN_RESIDUAL_LOCAL, CNN_RESIDUAL_GLOBAL
+REAL(EB), SAVE :: TOTAL_CNN_TIME = 0.0_EB
+INTEGER,  SAVE :: CNN_EXEC_COUNT = 0
+REAL(EB) :: T_START_CNN, T_END_CNN, T_ELAPSED_CNN
+
+! ==================== 原生求解器变量与计时 ====================
+REAL(EB), SAVE :: TOTAL_NATIVE_TIME = 0.0_EB  ! 全局累计时间
+INTEGER,  SAVE :: NATIVE_CALL_COUNT = 0       ! 全局累计调用次数
+REAL(EB) :: T_START_NATIVE, T_END_NATIVE, T_ELAPSED_NATIVE
+
+! ======== 数据导出变量 ========
+LOGICAL :: WRITE_DATA
+INTEGER :: II, JJ, KK, IO_UNIT
+INTEGER(INT32) :: NFEAT
+CHARACTER(255) :: CSV_FILE, BIN_FILE   
+CHARACTER(10) :: SOLVER_NAME 
+
+! 定义一个结构体，把 4 个 3D 数组打包
+TYPE :: EXPORT_DATA_TYPE
+   REAL(EB), ALLOCATABLE, DIMENSION(:,:,:) :: USTAR,VSTAR, WSTAR, DIV, RHS, TEMP, RHO, POLD, PNEW
+END TYPE EXPORT_DATA_TYPE
+! 声明大小为 NMESHES 的一维数组，每个元素对应一个网格的数据
+TYPE(EXPORT_DATA_TYPE), ALLOCATABLE, DIMENSION(:) :: EXPORT_DATA
+
 
 PRESSURE_ITERATIONS = 0
 IF (BAROCLINIC) THEN
@@ -1408,6 +1432,61 @@ IF(CC_IBM) THEN
    ENDDO
 ENDIF
 
+! ---> 触发条件（稳态时间窗口限制 20s - 30s）<---
+WRITE_DATA = .FALSE.
+IF (CORRECTOR) THEN
+   ! IF (T >=20.0_EB .AND. T <= 30.0_EB) THEN
+   !    IF (MOD(ICYC,10)==0) WRITE_DATA = .TRUE.
+   ! ENDIF
+ENDIF
+
+! ----- 分配并保存旧数据 (POLD, DIV) -----
+IF (WRITE_DATA) THEN
+   IF (.NOT. ALLOCATED(EXPORT_DATA)) ALLOCATE(EXPORT_DATA(NMESHES))
+   DO NM = LOWER_MESH_INDEX, UPPER_MESH_INDEX
+      M => MESHES(NM)
+      ! 独立清理当前网格的内存
+      IF (ALLOCATED(EXPORT_DATA(NM)%USTAR)) DEALLOCATE(EXPORT_DATA(NM)%USTAR)
+      IF (ALLOCATED(EXPORT_DATA(NM)%VSTAR)) DEALLOCATE(EXPORT_DATA(NM)%VSTAR)
+      IF (ALLOCATED(EXPORT_DATA(NM)%WSTAR)) DEALLOCATE(EXPORT_DATA(NM)%WSTAR)
+      IF (ALLOCATED(EXPORT_DATA(NM)%DIV))  DEALLOCATE(EXPORT_DATA(NM)%DIV)
+      IF (ALLOCATED(EXPORT_DATA(NM)%RHS))  DEALLOCATE(EXPORT_DATA(NM)%RHS)
+      IF (ALLOCATED(EXPORT_DATA(NM)%TEMP)) DEALLOCATE(EXPORT_DATA(NM)%TEMP)
+      IF (ALLOCATED(EXPORT_DATA(NM)%RHO))  DEALLOCATE(EXPORT_DATA(NM)%RHO)
+      IF (ALLOCATED(EXPORT_DATA(NM)%POLD)) DEALLOCATE(EXPORT_DATA(NM)%POLD)
+      IF (ALLOCATED(EXPORT_DATA(NM)%PNEW)) DEALLOCATE(EXPORT_DATA(NM)%PNEW)
+      
+      ! 为当前网格分配正确的尺寸
+      ALLOCATE(EXPORT_DATA(NM)%USTAR(M%IBAR, M%JBAR, M%KBAR))
+      ALLOCATE(EXPORT_DATA(NM)%VSTAR(M%IBAR, M%JBAR, M%KBAR))
+      ALLOCATE(EXPORT_DATA(NM)%WSTAR(M%IBAR, M%JBAR, M%KBAR))
+      ALLOCATE(EXPORT_DATA(NM)%DIV(M%IBAR, M%JBAR, M%KBAR))
+      ALLOCATE(EXPORT_DATA(NM)%RHS(M%IBAR, M%JBAR, M%KBAR))
+      ALLOCATE(EXPORT_DATA(NM)%TEMP(M%IBAR, M%JBAR, M%KBAR))
+      ALLOCATE(EXPORT_DATA(NM)%RHO(M%IBAR, M%JBAR, M%KBAR))
+      ALLOCATE(EXPORT_DATA(NM)%POLD(M%IBAR, M%JBAR, M%KBAR))
+      ALLOCATE(EXPORT_DATA(NM)%PNEW(M%IBAR, M%JBAR, M%KBAR))
+      
+      ! 切片赋值
+      IF (PREDICTOR) THEN
+         EXPORT_DATA(NM)%USTAR = M%US(1:M%IBAR, 1:M%JBAR, 1:M%KBAR)
+         EXPORT_DATA(NM)%VSTAR = M%VS(1:M%IBAR, 1:M%JBAR, 1:M%KBAR)
+         EXPORT_DATA(NM)%WSTAR = M%WS(1:M%IBAR, 1:M%JBAR, 1:M%KBAR)
+         EXPORT_DATA(NM)%DIV   = M%DS(1:M%IBAR, 1:M%JBAR, 1:M%KBAR)
+         EXPORT_DATA(NM)%POLD  = M%H(1:M%IBAR,  1:M%JBAR, 1:M%KBAR)
+      ELSE
+         EXPORT_DATA(NM)%USTAR = M%US(1:M%IBAR, 1:M%JBAR, 1:M%KBAR)
+         EXPORT_DATA(NM)%VSTAR = M%VS(1:M%IBAR, 1:M%JBAR, 1:M%KBAR)
+         EXPORT_DATA(NM)%WSTAR = M%WS(1:M%IBAR, 1:M%JBAR, 1:M%KBAR)
+         EXPORT_DATA(NM)%DIV   = M%D(1:M%IBAR,  1:M%JBAR, 1:M%KBAR)
+         EXPORT_DATA(NM)%POLD  = M%HS(1:M%IBAR, 1:M%JBAR, 1:M%KBAR)
+      ENDIF
+      EXPORT_DATA(NM)%TEMP = M%TMP(1:M%IBAR, 1:M%JBAR, 1:M%KBAR)
+      EXPORT_DATA(NM)%RHO  = M%RHOS(1:M%IBAR, 1:M%JBAR, 1:M%KBAR)
+   ENDDO
+ENDIF
+
+
 PRESSURE_ITERATION_LOOP: DO
 
    PRESSURE_ITERATIONS = PRESSURE_ITERATIONS + 1
@@ -1418,62 +1497,84 @@ PRESSURE_ITERATION_LOOP: DO
          IF (BAROCLINIC) CALL BAROCLINIC_CORRECTION(T,NM)
          IF (CC_IBM) CALL CC_NO_FLUX(DT,NM,.TRUE.)
       ENDDO
-      CALL MESH_EXCHANGE(5)
+      CALL MESH_EXCHANGE(5)  ! Exchange FVX, FVY, FVZ
       DO NM=LOWER_MESH_INDEX,UPPER_MESH_INDEX
          CALL MATCH_VELOCITY_FLUX(NM)
       ENDDO
    ENDIF
 
-   ! Compute the right hand side (RHS) and boundary conditions
+   ! Compute RHS
    DO NM=LOWER_MESH_INDEX,UPPER_MESH_INDEX
       CALL NO_FLUX(DT,NM)
       IF (CC_IBM) CALL CC_NO_FLUX(DT,NM,.FALSE.) 
       IF (PRESSURE_ITERATIONS==1) MESHES(NM)%WALL_WORK1 = 0._EB
       CALL PRESSURE_SOLVER_COMPUTE_RHS(T,DT,NM)
+      IF (WRITE_DATA) THEN
+         M => MESHES(NM)
+         EXPORT_DATA(NM)%RHS(1:M%IBAR, 1:M%JBAR, 1:M%KBAR) = M%PRHS(1:M%IBAR, 1:M%JBAR, 1:M%KBAR)
+      ENDIF
    ENDDO
-
-   ! ==================== CNN 接管 ====================
+   
+   ! ==========================================================
+   !                      1. CNN 接管逻辑
+   ! ==========================================================
    USED_CNN = .FALSE.
    USED_CNNsafenet = .TRUE.
    IF (CORRECTOR .AND. PRESSURE_ITERATIONS == 1) THEN
-      ! 直接使用主程序原生的物理时间变量 T
-      IF (T >= 30.0_EB .AND. T <= 40.0_EB .AND. CNN_ACTIVE) THEN
+      IF (CNN_TIME_ACTIVE(T) .AND. CNN_ACTIVE .AND. CNN_GRID_SUPPORTED()) THEN
 
-         ! --- 输出控制 (开始、整千步、结束) ---
-         IF (MY_RANK == 0) THEN
-            ! 1. 捕捉刚开始的第一次调用
-            IF (CNN_CALL_COUNT == 0) THEN
-               WRITE(*,'(A,F10.4)') ' >>> [CNN Stage] CNN solver STARTED at T = ', T
-            
-            ! 2. 捕捉整 100 步的调用
-            ELSE IF (MOD(CNN_CALL_COUNT, 100) == 0) THEN
-               WRITE(*,'(A,F10.4,A,I6,A)') ' >>> [CNN Stage] CNN solver running at T = ', T, ' (Calls: ', CNN_CALL_COUNT, ')'
-               
-            END IF
-            
-            ! 3. 捕捉最后一次调用 (即加上当前步长 DT 后，将超出 60.0 的接管窗口)
-            IF (T + DT > 40.0_EB) THEN
-               WRITE(*,'(A,F10.4)') ' >>> [CNN Stage] CNN solver FINISHED at T = ', T
-            ! --- 在这里触发最终的统计算法！ ---
-               CALL PRINT_CNN_PROFILER_SUMMARY()
-            END IF
-         END IF
-         ! ------------------------------------------------
-            
+         ! --- CNN 开始计时 ---
+         T_START_CNN = CURRENT_TIME()
+
          DO NM = LOWER_MESH_INDEX, UPPER_MESH_INDEX
             CALL PRESSURE_SOLVER_CNN(NM,DT)   ! 直接预测校正步压力 HS
          ENDDO
          CALL MESH_EXCHANGE(5)             ! 更新插值边界
          
+         ! --- CNN 结束计时 ---
+         T_END_CNN = CURRENT_TIME()
+         T_ELAPSED_CNN = T_END_CNN - T_START_CNN
+         TOTAL_CNN_TIME = TOTAL_CNN_TIME + T_ELAPSED_CNN
+         CNN_EXEC_COUNT = CNN_EXEC_COUNT + 1
+
          USED_CNN = .TRUE.
+
+         ! --- CNN 实时输出控制 ---
+         IF (MY_RANK == 0) THEN
+            IF (CNN_EXEC_COUNT == 1) THEN
+               WRITE(*,'(A,F10.4,A,ES15.7,A)') ' >>> [CNN Profiler] CNN solver STARTED at T = ', T, &
+                                               ' | First Step Time: ', T_ELAPSED_CNN, ' s'
+               FLUSH(6)
+            ELSE IF (MOD(CNN_EXEC_COUNT, 100) == 0) THEN
+               WRITE(*,'(A,I8,A,F10.4,A,ES15.7,A)') ' >>> [CNN Profiler] Calls: ', CNN_EXEC_COUNT, &
+                                                    ' | T = ', T, &
+                                                    ' | Step Time: ', T_ELAPSED_CNN, ' s'
+               FLUSH(6)
+            END IF
+            
+            ! 如果当前步结束后超出接管窗口，输出最终总结
+            IF (.NOT. CNN_TIME_ACTIVE(T+DT)) THEN
+               WRITE(*,'(A,F10.4,A,ES15.7,A)') ' >>> [CNN Profiler] CNN solver FINISHED at T = ', T, &
+                                               ' | Total CNN CPU Time: ', TOTAL_CNN_TIME, ' s'
+               CALL PRINT_CNN_PROFILER_SUMMARY()
+               FLUSH(6)
+            END IF
+         END IF
+
+      ELSEIF (CNN_TIME_ACTIVE(T) .AND. CNN_ACTIVE .AND. &
+              .NOT. CNN_GRID_SUPPORTED() .AND. .NOT. CNN_GRID_WARNING_ISSUED) THEN
+         CNN_GRID_WARNING_ISSUED = .TRUE.
+         IF (MY_RANK == 0) WRITE(*,'(A)') ' >>> [CNN] Grid unsupported by current ONNX adapter; using native pressure solver.'
       ENDIF
    ENDIF
 
-   ! ==================== 传统求解器 ====================
+   ! ==========================================================
+   !                    2. 原生/传统 求解器逻辑
+   ! ==========================================================
    IF (.NOT. USED_CNN) THEN
-      ! 1. 记录原生求解器开始时间
+      ! --- 传统求解器开始计时 ---
       T_START_NATIVE = CURRENT_TIME()
-      !2. 执行真正的原生泊松求解  
+      
       SELECT CASE(PRES_FLAG)
          CASE (FFT_FLAG)
             IF (TUNNEL_PRECONDITIONER) CALL TUNNEL_POISSON_SOLVER
@@ -1490,23 +1591,25 @@ PRESSURE_ITERATION_LOOP: DO
                CALL ULMAT_SOLVER(NM,T,DT)
             ENDDO
       END SELECT
-
-      ! 3. 记录原生求解器结束时间
+      
+      ! --- 传统求解器结束计时 ---
       T_END_NATIVE = CURRENT_TIME()
-      ! 4. 累加总时间与调用次数
-      TOTAL_NATIVE_TIME = TOTAL_NATIVE_TIME + (T_END_NATIVE - T_START_NATIVE)
+      T_ELAPSED_NATIVE = T_END_NATIVE - T_START_NATIVE
+      TOTAL_NATIVE_TIME = TOTAL_NATIVE_TIME + T_ELAPSED_NATIVE
       NATIVE_CALL_COUNT = NATIVE_CALL_COUNT + 1
 
-      ! 5. 每隔 1000 次调用，或者在模拟最后，打印出原生求解器的极细致耗时
+      ! --- 传统求解器 实时输出控制  ---
       IF (MY_RANK == 0) THEN
-         IF (MOD(NATIVE_CALL_COUNT, 20000) == 0 .OR. T+DT > T_END) THEN
-            WRITE(*,'(A,I8,A,F10.4,A,F10.6,A)') &
-               ' >>> [Native Profiler] Calls: ', NATIVE_CALL_COUNT, &
-               ' | Total Time: ', TOTAL_NATIVE_TIME, &
-               ' s | Avg Time: ', (TOTAL_NATIVE_TIME / REAL(NATIVE_CALL_COUNT, EB)) * 1000.0_EB, ' ms'
+         ! 只在第 1 个时间步，或者每隔 100 个时间步的第 1 次内部迭代时输出，防止刷屏
+         IF (PRESSURE_ITERATIONS == 1) THEN
+            IF (ICYC == 1 .OR. MOD(ICYC, 100) == 0) THEN
+               WRITE(*,'(A,I0,A,I0,A,ES15.7,A)') ' >>> [Native Profiler] ICYC = ', ICYC, &
+                          ' | ITER = ', PRESSURE_ITERATIONS, &
+                          ' | Step CPU Time = ', T_ELAPSED_NATIVE, ' s'
+               FLUSH(6) 
+            ENDIF
          ENDIF
       ENDIF
-
    ENDIF
 
    ! Check the residuals of the Poisson solution
@@ -1519,65 +1622,88 @@ PRESSURE_ITERATION_LOOP: DO
       END SELECT
    ENDDO
 
-   ! ==================== 安全网回退 ====================
-   IF (USED_CNNsafenet) THEN  
-
-      IF (USED_CNN) THEN
-         ! 如果网络崩溃输出 NaN，(NaN <= 0.5) 为 False，取反后变为 True，从而 100% 拦截 NaN 导致的发散！
-         IF (.NOT. (MAXVAL(PRESSURE_ERROR_MAX) <= CNN_RES_TOL)) THEN
-            CNN_ACTIVE = .FALSE.
-            CNN_COOLDOWN = 100  ! 强制进入冷却期，接下来 100 个时间步由原生 FDS 求解器负责洗刷激波
-            
-            IF (MY_RANK == 0) THEN
-               WRITE(*,'(A)') ''
-               WRITE(*,'(A,F10.4,A,E12.4)') ' >>> [Safe-Net Triggered] Time: ', T, ' | Res: ', MAXVAL(PRESSURE_ERROR_MAX)
-               WRITE(*,'(A)') ' >>> [Safe-Net] CNN diverged or produced NaN! Reverting to native FDS solver...'
-               WRITE(*,'(A)') ''
-            ENDIF
-            
-            ! 1. 将本步被 CNN 污染的校正步压力场 (HS)，无损恢复为健康的预测步压力场 (H)
-            DO NM = LOWER_MESH_INDEX, UPPER_MESH_INDEX
-               MESHES(NM)%HS(:,:,:) = MESHES(NM)%H(:,:,:)
-            ENDDO
-            
-            ! 2. 状态重置：让它以为当前时间步的迭代才刚刚开始，重置计数器
-            USED_CNN = .FALSE.
-            PRESSURE_ITERATIONS = 0
-            TOTAL_PRESSURE_ITERATIONS = TOTAL_PRESSURE_ITERATIONS - 1
-            
-            ! 3. 重新开始循环：下一次迭代将因为 CNN_ACTIVE=F，自动由高精度的原生求解器接管擦屁股！
-            CYCLE PRESSURE_ITERATION_LOOP
-         ENDIF
-      ELSE
-         ! 只在每个物理时间步的第 1 次迭代且未激活 CNN 时执行倒计时
-         IF (.NOT. CNN_ACTIVE .AND. CORRECTOR .AND. PRESSURE_ITERATIONS == 1) THEN
-            CNN_COOLDOWN = CNN_COOLDOWN - 1
-            IF (CNN_COOLDOWN <= 0) THEN
-               CNN_ACTIVE = .TRUE.
-               IF (MY_RANK == 0) THEN
-                  WRITE(*,'(A)') ''
-                  WRITE(*,'(A,F10.4)') ' >>> [Safe-Net] Cooldown finished at T = ', T
-                  WRITE(*,'(A)') ' >>> [Safe-Net] CNN reactivated! Ready to infer again.'
-                  WRITE(*,'(A)') ''
-               ENDIF
-            ENDIF
-         ENDIF
+   ! ==========================================================
+   !                  3. Safe-Net 拦截与回退机制
+   ! ==========================================================
+   IF (USED_CNNsafenet .AND. USED_CNN) THEN
+      CNN_RESIDUAL_LOCAL = MAXVAL(PRESSURE_ERROR_MAX(LOWER_MESH_INDEX:UPPER_MESH_INDEX))
+      CNN_RESIDUAL_GLOBAL = CNN_RESIDUAL_LOCAL
+      IF (N_MPI_PROCESSES > 1) THEN
+         CALL MPI_ALLREDUCE(CNN_RESIDUAL_LOCAL,CNN_RESIDUAL_GLOBAL,1,MPI_DOUBLE_PRECISION, &
+                            MPI_MAX,MPI_COMM_WORLD,IERR)
       ENDIF
+      IF (.NOT. (CNN_RESIDUAL_GLOBAL <= CNN_RES_TOL)) THEN
+         CNN_ACTIVE = .FALSE.; CNN_COOLDOWN = 100
+         IF (MY_RANK == 0) WRITE(*,'(A,F10.4,A,E12.4)') &
+            ' >>> [Safe-Net] CNN fallback at T = ', T, ' | residual = ', CNN_RESIDUAL_GLOBAL
+         DO NM = LOWER_MESH_INDEX, UPPER_MESH_INDEX
+            MESHES(NM)%HS(:,:,:) = MESHES(NM)%H(:,:,:)
+         ENDDO
+         USED_CNN = .FALSE.
+         PRESSURE_ITERATIONS = 0
+         TOTAL_PRESSURE_ITERATIONS = TOTAL_PRESSURE_ITERATIONS - 1
+         CYCLE PRESSURE_ITERATION_LOOP
+      ENDIF
+   ELSEIF (USED_CNNsafenet .AND. .NOT. CNN_ACTIVE .AND. CORRECTOR .AND. &
+           PRESSURE_ITERATIONS == 1 .AND. CNN_COOLDOWN > 0) THEN
+      CNN_COOLDOWN = CNN_COOLDOWN - 1
+      IF (CNN_COOLDOWN == 0) THEN
+         CNN_ACTIVE = .TRUE.
+         IF (MY_RANK == 0) WRITE(*,'(A,F10.4)') ' >>> [Safe-Net] CNN reactivated at T = ', T
+      ENDIF
+   ENDIF
 
-   ENDIF 
 
-   ! 如果 USED_CNN 为真
-   IF (USED_CNN .OR. &
-       (MAXVAL(PRESSURE_ERROR_MAX)<PRESSURE_TOLERANCE .AND. &
-        MAXVAL(VELOCITY_ERROR_MAX)<VELOCITY_TOLERANCE) .OR. &
-       PRESSURE_ITERATIONS>=MAX_PRESSURE_ITERATIONS) &
+   IF (.NOT.ITERATE_PRESSURE) EXIT PRESSURE_ITERATION_LOOP
+
+   ! Exchange both H or HS and FVX, FVY, FVZ and then estimate values of U, V, W
+   CALL MESH_EXCHANGE(5)
+
+   DO NM=LOWER_MESH_INDEX,UPPER_MESH_INDEX
+      CALL COMPUTE_VELOCITY_ERROR(DT,NM)
+      IF (CC_IBM) CALL CC_COMPUTE_VELOCITY_ERROR(DT,NM) ! Inside solids respect to zero velocity.
+   ENDDO
+
+   ! Make all MPI processes aware of the maximum velocity error
+   IF (N_MPI_PROCESSES>1) THEN
+      TNOW = CURRENT_TIME()
+      REAL_BUFFER_10( 1,LOWER_MESH_INDEX:UPPER_MESH_INDEX) = VELOCITY_ERROR_MAX(LOWER_MESH_INDEX:UPPER_MESH_INDEX)
+      REAL_BUFFER_10( 2,LOWER_MESH_INDEX:UPPER_MESH_INDEX) = PRESSURE_ERROR_MAX(LOWER_MESH_INDEX:UPPER_MESH_INDEX)
+      REAL_BUFFER_10(3:5,LOWER_MESH_INDEX:UPPER_MESH_INDEX) = VELOCITY_ERROR_MAX_LOC(1:3,LOWER_MESH_INDEX:UPPER_MESH_INDEX)
+      REAL_BUFFER_10(6:8,LOWER_MESH_INDEX:UPPER_MESH_INDEX) = PRESSURE_ERROR_MAX_LOC(1:3,LOWER_MESH_INDEX:UPPER_MESH_INDEX)
+      CALL MPI_ALLGATHERV(MPI_IN_PLACE,0,MPI_DATATYPE_NULL,REAL_BUFFER_10(1:10,1:NMESHES),&
+                          COUNTS_10,DISPLS_10,MPI_DOUBLE_PRECISION,MPI_COMM_WORLD,IERR)
+      VELOCITY_ERROR_MAX(:)         =     REAL_BUFFER_10(1,:)
+      PRESSURE_ERROR_MAX(:)         =     REAL_BUFFER_10(2,:)
+      VELOCITY_ERROR_MAX_LOC(1:3,:) = INT(REAL_BUFFER_10(3:5,:))
+      PRESSURE_ERROR_MAX_LOC(1:3,:) = INT(REAL_BUFFER_10(6:8,:))
+      T_USED(11)=T_USED(11) + CURRENT_TIME() - TNOW
+   ENDIF
+   
+   !IF (PRES_FLAG==ULMAT_FLAG) CALL ULMAT_ML_EXPORT_OUTER_ERRORS(T,DT)
+   IF (MY_RANK==0 .AND. VELOCITY_ERROR_FILE) THEN
+      NM_MAX_V = MAXLOC(VELOCITY_ERROR_MAX,DIM=1)
+      NM_MAX_P = MAXLOC(PRESSURE_ERROR_MAX,DIM=1)
+      WRITE(LU_VELOCITY_ERROR,'(E16.8,A,7(I7,A),E16.8,A,4(I7,A),E16.8)') T,',',ICYC,',',PRESSURE_ITERATIONS,',',&
+         TOTAL_PRESSURE_ITERATIONS,',',&
+         NM_MAX_V,',',VELOCITY_ERROR_MAX_LOC(1,NM_MAX_V),',',VELOCITY_ERROR_MAX_LOC(2,NM_MAX_V),',',&
+         VELOCITY_ERROR_MAX_LOC(3,NM_MAX_V),',',MAXVAL(VELOCITY_ERROR_MAX),',',&
+         NM_MAX_P,',',PRESSURE_ERROR_MAX_LOC(1,NM_MAX_P),',',PRESSURE_ERROR_MAX_LOC(2,NM_MAX_P),',',&
+         PRESSURE_ERROR_MAX_LOC(3,NM_MAX_P),',',MAXVAL(PRESSURE_ERROR_MAX)
+   ENDIF
+
+   ! If the VELOCITY_TOLERANCE is satisfied or max/min iterations are hit, exit the loop.
+   IF (MAXVAL(PRESSURE_ERROR_MAX)<PRESSURE_TOLERANCE) ITERATE_BAROCLINIC_TERM = .FALSE.
+
+   IF ((MAXVAL(PRESSURE_ERROR_MAX)<PRESSURE_TOLERANCE .AND. &
+        MAXVAL(VELOCITY_ERROR_MAX)<VELOCITY_TOLERANCE) .OR. PRESSURE_ITERATIONS>=MAX_PRESSURE_ITERATIONS) &
       EXIT PRESSURE_ITERATION_LOOP
 
-   ! 如果既不是 CNN，又没收敛，执行这里的挂起判断，然后开始下一次迭代
+   ! Exit the iteration loop if satisfactory progress is not achieved
    IF (SUSPEND_PRESSURE_ITERATIONS .AND. ICYC>10) THEN
       IF (PRESSURE_ITERATIONS>3 .AND.  &
-         MAXVAL(VELOCITY_ERROR_MAX)>ITERATION_SUSPEND_FACTOR*VELOCITY_ERROR_MAX_OLD .AND. &
-         MAXVAL(PRESSURE_ERROR_MAX)>ITERATION_SUSPEND_FACTOR*PRESSURE_ERROR_MAX_OLD) EXIT PRESSURE_ITERATION_LOOP
+          MAXVAL(VELOCITY_ERROR_MAX)>ITERATION_SUSPEND_FACTOR*VELOCITY_ERROR_MAX_OLD .AND. &
+          MAXVAL(PRESSURE_ERROR_MAX)>ITERATION_SUSPEND_FACTOR*PRESSURE_ERROR_MAX_OLD) EXIT PRESSURE_ITERATION_LOOP
       VELOCITY_ERROR_MAX_OLD = MAXVAL(VELOCITY_ERROR_MAX)
       PRESSURE_ERROR_MAX_OLD = MAXVAL(PRESSURE_ERROR_MAX)
    ENDIF
@@ -1585,7 +1711,86 @@ PRESSURE_ITERATION_LOOP: DO
 ENDDO PRESSURE_ITERATION_LOOP
 
 
+! 输出每个时间步的压力求解汇总信息 (防刷屏优化)
+IF (MY_RANK==0) THEN
+   ! 仅在第1步，或者每100步输出一次总结
+   IF (ICYC == 1 .OR. MOD(ICYC, 100) == 0) THEN
+      SELECT CASE(PRES_FLAG)
+          CASE (FFT_FLAG);    SOLVER_NAME = 'FFT'
+          CASE (GLMAT_FLAG);  SOLVER_NAME = 'GLMAT'
+          CASE (UGLMAT_FLAG); SOLVER_NAME = 'UGLMAT'
+          CASE (ULMAT_FLAG);  SOLVER_NAME = 'ULMAT'
+          CASE DEFAULT;       SOLVER_NAME = 'UNKNOWN'
+      END SELECT
+
+      IF (PREDICTOR) THEN
+         WRITE(*,'(A,I0,A,A,A,A,I0,A,I0)') &
+             'PRESSURE_STEP_SUMMARY: ICYC=', ICYC, &
+             ' STAGE=PREDICTOR', ' SOLVER=', TRIM(SOLVER_NAME), &
+             ' ITERATIONS=', PRESSURE_ITERATIONS, &
+             ' NATIVE_CALLS=', NATIVE_CALL_COUNT
+      ELSE
+         WRITE(*,'(A,I0,A,A,A,A,I0,A,I0)') &
+             'PRESSURE_STEP_SUMMARY: ICYC=', ICYC, &
+             ' STAGE=CORRECTOR', ' SOLVER=', TRIM(SOLVER_NAME), &
+             ' ITERATIONS=', PRESSURE_ITERATIONS, &
+             ' NATIVE_CALLS=', NATIVE_CALL_COUNT
+      ENDIF
+   ENDIF
+ENDIF
+
+
+! ----- 迭代结束后，保存新压力并输出数据 -----
+IF (WRITE_DATA) THEN
+   DO NM = LOWER_MESH_INDEX, UPPER_MESH_INDEX
+      M => MESHES(NM)
+      IF (PREDICTOR) THEN
+         EXPORT_DATA(NM)%PNEW = M%H(1:M%IBAR,  1:M%JBAR, 1:M%KBAR)
+      ELSE
+         EXPORT_DATA(NM)%PNEW = M%HS(1:M%IBAR, 1:M%JBAR, 1:M%KBAR)
+      ENDIF
+   ENDDO
+   
+   DO NM = LOWER_MESH_INDEX, UPPER_MESH_INDEX
+      M => MESHES(NM)
+      CSV_FILE = ''
+      IERR = 0
+      WRITE(CSV_FILE, '(A,A,I0,A,I0,A)') TRIM(CHID), '_pressure_m', NM, '_step', ICYC, '.csv'
+      
+      IO_UNIT = -1
+      OPEN(NEWUNIT=IO_UNIT, FILE=TRIM(CSV_FILE), STATUS='REPLACE', FORM='FORMATTED', IOSTAT=IERR)
+      IF (IERR == 0) THEN
+         WRITE(IO_UNIT, '(A)') 'I,J,K,X,Y,Z,Ustar,Vstar,Wstar,D_target,RHS,T,RHO,P_old,P_new,DT,' // &
+            'QX_LOW,QX_HIGH,QZ_LOW,QZ_HIGH,RDX_CELL,RDZ_CELL,RDXN_LOW,RDXN_HIGH,RDZN_LOW,RDZN_HIGH'
+         DO KK = 1, M%KBAR
+            DO JJ = 1, M%JBAR
+               DO II = 1, M%IBAR
+                  IF (M%CELL(M%CELL_INDEX(II,JJ,KK))%SOLID) CYCLE
+                  QX_LOW  = 0.5_EB*(M%U(II-1,JJ,KK) + M%US(II-1,JJ,KK) - DT*M%FVX(II-1,JJ,KK))
+                  QX_HIGH = 0.5_EB*(M%U(II  ,JJ,KK) + M%US(II  ,JJ,KK) - DT*M%FVX(II  ,JJ,KK))
+                  QZ_LOW  = 0.5_EB*(M%W(II,JJ,KK-1) + M%WS(II,JJ,KK-1) - DT*M%FVZ(II,JJ,KK-1))
+                  QZ_HIGH = 0.5_EB*(M%W(II,JJ,KK  ) + M%WS(II,JJ,KK  ) - DT*M%FVZ(II,JJ,KK  ))
+                  WRITE(IO_UNIT, '(I0,",",I0,",",I0,",",23(ES15.7,:,","))') &
+                      II, JJ, KK, M%XC(II), M%YC(JJ), M%ZC(KK),     &
+                      EXPORT_DATA(NM)%USTAR(II,JJ,KK),EXPORT_DATA(NM)%VSTAR(II,JJ,KK), EXPORT_DATA(NM)%WSTAR(II,JJ,KK), &
+                      EXPORT_DATA(NM)%DIV(II,JJ,KK), EXPORT_DATA(NM)%RHS(II,JJ,KK),     &
+                      EXPORT_DATA(NM)%TEMP(II,JJ,KK), EXPORT_DATA(NM)%RHO(II,JJ,KK),    &
+                      EXPORT_DATA(NM)%POLD(II,JJ,KK), EXPORT_DATA(NM)%PNEW(II,JJ,KK), DT, &
+                      QX_LOW,QX_HIGH,QZ_LOW,QZ_HIGH,M%RDX(II),M%RDZ(KK), &
+                      M%RDXN(II-1),M%RDXN(II),M%RDZN(KK-1),M%RDZN(KK)
+               ENDDO
+            ENDDO
+         ENDDO
+         CLOSE(IO_UNIT)
+      ELSE
+         WRITE(LU_ERR,*) 'ERROR: Cannot open CSV file ', TRIM(CSV_FILE), ' IOSTAT=', IERR
+      END IF
+   ENDDO
+   DEALLOCATE(EXPORT_DATA)
+END IF
+
 END SUBROUTINE PRESSURE_ITERATION_SCHEME
+
 
 !> \brief Compute a running average of the source correction factor for the radiative transport scheme.
 
