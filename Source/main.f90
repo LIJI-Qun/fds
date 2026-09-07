@@ -43,7 +43,7 @@ USE MPI_F08
 USE SOOT_ROUTINES, ONLY: CALC_AGGLOMERATION
 USE GLOBMAT_SOLVER, ONLY : GLMAT_SOLVER_SETUP, GLMAT_SOLVER, COPY_H_OMESH_TO_MESH, &
                            FINISH_GLMAT_SOLVER,PRESSURE_SOLVER_CHECK_RESIDUALS_U
-USE LOCMAT_SOLVER, ONLY : ULMAT_SOLVER,ULMAT_SOLVER_SETUP,FINISH_ULMAT_SOLVER,ULMAT_ML_EXPORT_OUTER_ERRORS
+USE LOCMAT_SOLVER, ONLY : ULMAT_SOLVER,ULMAT_SOLVER_SETUP,FINISH_ULMAT_SOLVER
 
 IMPLICIT NONE (TYPE,EXTERNAL)
 
@@ -1384,7 +1384,6 @@ END SUBROUTINE MPI_INITIALIZATION_CHORES
 SUBROUTINE PRESSURE_ITERATION_SCHEME
 
 USE CC_SCALARS, ONLY : GET_LINKED_FV
-USE, INTRINSIC :: ISO_FORTRAN_ENV, ONLY : INT32
 INTEGER :: NM_MAX_V,NM_MAX_P
 REAL(EB) :: TNOW,VELOCITY_ERROR_MAX_OLD,PRESSURE_ERROR_MAX_OLD
 REAL(EB) :: QX_LOW,QX_HIGH,QZ_LOW,QZ_HIGH
@@ -1395,22 +1394,28 @@ REAL(EB) :: TOTAL_T_POISSON, AVERAGE_T_POISSON
 INTEGER  :: COUNT_POISSON
 REAL(EB) :: AVG_STEP_TOTAL, AVG_STEP_CORR, AVG_STAGE_TOTAL, AVG_STAGE_CORR
 
-! ====== CSV 统计文件专属变量 (200步与1000步) ======
-INTEGER :: STAT_UNIT_200, STAT_UNIT_1000
-LOGICAL, SAVE :: STAT_CSV_200_INITIALIZED = .FALSE. 
-LOGICAL, SAVE :: STAT_CSV_1000_INITIALIZED = .FALSE. 
-CHARACTER(255) :: STAT_FILE_200, STAT_FILE_1000
+! ====== CSV 统计输出频率控制 ======
+INTEGER, PARAMETER :: FREQ_STEP  = 2000    ! 步级输出频率
+INTEGER, PARAMETER :: FREQ_STAGE = 10000   ! 阶段级输出频率
 
-! ====== 步级（每200步）与阶段级（每1000步）统计变量 ======
+! ====== CSV 统计文件专属变量 ======
+INTEGER :: STAT_UNIT_STEP, STAT_UNIT_STAGE
+LOGICAL, SAVE :: STAT_CSV_STEP_INIT = .FALSE. 
+LOGICAL, SAVE :: STAT_CSV_STAGE_INIT = .FALSE. 
+CHARACTER(255) :: STAT_FILE_STEP, STAT_FILE_STAGE
+CHARACTER(10) :: SOLVER_NAME 
+INTEGER :: IERR
+
+! ====== 步级与阶段级统计累加变量 ======
 REAL(EB), SAVE :: STEP_TOTAL_T_POISSON = 0.0_EB    ! 当前时间步（预测+校正）总耗时
 INTEGER,  SAVE :: STEP_COUNT_POISSON = 0           ! 当前时间步（预测+校正）总迭代次数
 REAL(EB), SAVE :: STEP_CORR_T_POISSON = 0.0_EB     ! 当前时间步（仅校正步）总耗时
 INTEGER,  SAVE :: STEP_CORR_COUNT_POISSON = 0      ! 当前时间步（仅校正步）迭代次数
 
-REAL(EB), SAVE :: STAGE_TOTAL_T_POISSON = 0.0_EB   ! 本阶段（近1000步，预测+校正）总耗时
-INTEGER,  SAVE :: STAGE_COUNT_POISSON = 0          ! 本阶段（近1000步，预测+校正）总迭代次数
-REAL(EB), SAVE :: STAGE_CORR_T_POISSON = 0.0_EB    ! 本阶段（近1000步，仅校正步）总耗时
-INTEGER,  SAVE :: STAGE_CORR_COUNT_POISSON = 0     ! 本阶段（近1000步，仅校正步）迭代次数
+REAL(EB), SAVE :: STAGE_TOTAL_T_POISSON = 0.0_EB   ! 本阶段（预测+校正）总耗时
+INTEGER,  SAVE :: STAGE_COUNT_POISSON = 0          ! 本阶段（预测+校正）总迭代次数
+REAL(EB), SAVE :: STAGE_CORR_T_POISSON = 0.0_EB    ! 本阶段（仅校正步）总耗时
+INTEGER,  SAVE :: STAGE_CORR_COUNT_POISSON = 0     ! 本阶段（仅校正步）迭代次数
 
 ! ====== 全局累计统计变量（跨整个模拟，模拟结束时输出）======
 REAL(EB), SAVE :: GLOBAL_TOTAL_T_POISSON = 0.0_EB  ! 校正步泊松求解累计时间
@@ -1418,19 +1423,6 @@ INTEGER,  SAVE :: GLOBAL_COUNT_POISSON = 0         ! 校正步泊松求解累计
 REAL(EB), SAVE :: ALL_TOTAL_T_POISSON = 0.0_EB     ! 所有步（预测+校正）泊松求解累计时间
 INTEGER,  SAVE :: ALL_COUNT_POISSON = 0            ! 所有步（预测+校正）泊松求解累计调用次数
 
-! ======== 数据导出变量 (用于CNN) ========
-LOGICAL :: WRITE_DATA
-INTEGER :: II, JJ, KK, IO_UNIT
-INTEGER(INT32) :: NFEAT
-CHARACTER(255) :: CSV_FILE, BIN_FILE   
-CHARACTER(10) :: SOLVER_NAME 
-
-! 定义一个结构体，把 4 个 3D 数组打包
-TYPE :: EXPORT_DATA_TYPE
-   REAL(EB), ALLOCATABLE, DIMENSION(:,:,:) :: USTAR,VSTAR, WSTAR, DIV, RHS, TEMP, RHO, POLD, PNEW
-END TYPE EXPORT_DATA_TYPE
-! 声明大小为 NMESHES 的一维数组，每个元素对应一个网格的数据
-TYPE(EXPORT_DATA_TYPE), ALLOCATABLE, DIMENSION(:) :: EXPORT_DATA
 
 PRESSURE_ITERATIONS = 0
 
@@ -1455,67 +1447,6 @@ IF(CC_IBM) THEN
    ENDDO
 ENDIF
 
-! ---> 触发条件（稳态时间窗口限制 20s - 30s）<---
-WRITE_DATA = .FALSE.
-IF (CORRECTOR) THEN
-   ! 增加物理时间限制：T 大于等于 40s 且 小于等于 50s
-   ! IF (ICYC==1 .OR. (T+DT)>=T_END) WRITE_DATA = .TRUE.  
-   
-   ! IF (T >=20.0_EB .AND. T <= 30.0_EB) THEN
-   !    IF (MOD(ICYC,10)==0) WRITE_DATA = .TRUE.
-   !    WRITE(*,*) ' Exporting training data at T=', T, 's, ICYC=', ICYC  
-   ! ENDIF
-ENDIF
-
-! ----- 分配并保存旧数据 (POLD, DIV) -----
-IF (WRITE_DATA) THEN
-   IF (.NOT. ALLOCATED(EXPORT_DATA)) ALLOCATE(EXPORT_DATA(NMESHES))
-   
-   DO NM = LOWER_MESH_INDEX, UPPER_MESH_INDEX
-      M => MESHES(NM)
-      
-      ! 独立清理当前网格的内存
-      IF (ALLOCATED(EXPORT_DATA(NM)%USTAR)) DEALLOCATE(EXPORT_DATA(NM)%USTAR)
-      IF (ALLOCATED(EXPORT_DATA(NM)%VSTAR)) DEALLOCATE(EXPORT_DATA(NM)%VSTAR)
-      IF (ALLOCATED(EXPORT_DATA(NM)%WSTAR)) DEALLOCATE(EXPORT_DATA(NM)%WSTAR)
-      IF (ALLOCATED(EXPORT_DATA(NM)%DIV))   DEALLOCATE(EXPORT_DATA(NM)%DIV)
-      IF (ALLOCATED(EXPORT_DATA(NM)%RHS))   DEALLOCATE(EXPORT_DATA(NM)%RHS)
-      IF (ALLOCATED(EXPORT_DATA(NM)%TEMP))  DEALLOCATE(EXPORT_DATA(NM)%TEMP)
-      IF (ALLOCATED(EXPORT_DATA(NM)%RHO))   DEALLOCATE(EXPORT_DATA(NM)%RHO)
-      IF (ALLOCATED(EXPORT_DATA(NM)%POLD))  DEALLOCATE(EXPORT_DATA(NM)%POLD)
-      IF (ALLOCATED(EXPORT_DATA(NM)%PNEW))  DEALLOCATE(EXPORT_DATA(NM)%PNEW)
-      
-      ! 为当前网格分配正确的尺寸
-      ALLOCATE(EXPORT_DATA(NM)%USTAR(M%IBAR, M%JBAR, M%KBAR))
-      ALLOCATE(EXPORT_DATA(NM)%VSTAR(M%IBAR, M%JBAR, M%KBAR))
-      ALLOCATE(EXPORT_DATA(NM)%WSTAR(M%IBAR, M%JBAR, M%KBAR))
-      ALLOCATE(EXPORT_DATA(NM)%DIV(M%IBAR, M%JBAR, M%KBAR))
-      ALLOCATE(EXPORT_DATA(NM)%RHS(M%IBAR, M%JBAR, M%KBAR))
-      ALLOCATE(EXPORT_DATA(NM)%TEMP(M%IBAR, M%JBAR, M%KBAR))
-      ALLOCATE(EXPORT_DATA(NM)%RHO(M%IBAR, M%JBAR, M%KBAR))
-      ALLOCATE(EXPORT_DATA(NM)%POLD(M%IBAR, M%JBAR, M%KBAR))
-      ALLOCATE(EXPORT_DATA(NM)%PNEW(M%IBAR, M%JBAR, M%KBAR))
-      
-      ! 切片赋值，防止边界越界
-      IF (PREDICTOR) THEN
-         EXPORT_DATA(NM)%USTAR = M%US(1:M%IBAR, 1:M%JBAR, 1:M%KBAR)
-         EXPORT_DATA(NM)%VSTAR = M%VS(1:M%IBAR, 1:M%JBAR, 1:M%KBAR)
-         EXPORT_DATA(NM)%WSTAR = M%WS(1:M%IBAR, 1:M%JBAR, 1:M%KBAR)
-         EXPORT_DATA(NM)%DIV  = M%DS(1:M%IBAR, 1:M%JBAR, 1:M%KBAR)
-         EXPORT_DATA(NM)%POLD = M%H(1:M%IBAR,  1:M%JBAR, 1:M%KBAR)
-      ELSE
-         EXPORT_DATA(NM)%USTAR = M%US(1:M%IBAR, 1:M%JBAR, 1:M%KBAR)
-         EXPORT_DATA(NM)%VSTAR = M%VS(1:M%IBAR, 1:M%JBAR, 1:M%KBAR)
-         EXPORT_DATA(NM)%WSTAR = M%WS(1:M%IBAR, 1:M%JBAR, 1:M%KBAR)
-         EXPORT_DATA(NM)%DIV  = M%D(1:M%IBAR,  1:M%JBAR, 1:M%KBAR)
-         EXPORT_DATA(NM)%POLD = M%HS(1:M%IBAR, 1:M%JBAR, 1:M%KBAR)
-      ENDIF
-      EXPORT_DATA(NM)%TEMP = M%TMP(1:M%IBAR, 1:M%JBAR, 1:M%KBAR)
-      EXPORT_DATA(NM)%RHO  = M%RHOS(1:M%IBAR, 1:M%JBAR, 1:M%KBAR)
-   ENDDO
-ENDIF
-
-! 在进入压力迭代循环前，初始化累计时间和次数 (针对当次 Predictor 或 Corrector 调用)
 TOTAL_T_POISSON = 0.0_EB
 COUNT_POISSON = 0
 
@@ -1524,37 +1455,26 @@ PRESSURE_ITERATION_LOOP: DO
    PRESSURE_ITERATIONS = PRESSURE_ITERATIONS + 1
    TOTAL_PRESSURE_ITERATIONS = TOTAL_PRESSURE_ITERATIONS + 1
 
-   ! The following loops and exchange always get executed the first pass through the PRESSURE_ITERATION_LOOP.
-   ! If we need to iterate the baroclinic torque term, the loop is executed each time.
-
    IF (ITERATE_BAROCLINIC_TERM .OR. PRESSURE_ITERATIONS==1) THEN
       DO NM=LOWER_MESH_INDEX,UPPER_MESH_INDEX
          IF (BAROCLINIC) CALL BAROCLINIC_CORRECTION(T,NM)
          IF (CC_IBM) CALL CC_NO_FLUX(DT,NM,.TRUE.)
       ENDDO
-      CALL MESH_EXCHANGE(5)  ! Exchange FVX, FVY, FVZ
+      CALL MESH_EXCHANGE(5)  
       DO NM=LOWER_MESH_INDEX,UPPER_MESH_INDEX
          CALL MATCH_VELOCITY_FLUX(NM)
       ENDDO
    ENDIF
 
-   ! Compute the right hand side (RHS) and boundary conditions for the Poission equation for pressure.
    DO NM=LOWER_MESH_INDEX,UPPER_MESH_INDEX
       CALL NO_FLUX(DT,NM)
-      IF (CC_IBM) CALL CC_NO_FLUX(DT,NM,.FALSE.) ! set WALL_WORK1 to 0 in cells inside geometries.
+      IF (CC_IBM) CALL CC_NO_FLUX(DT,NM,.FALSE.) 
       IF (PRESSURE_ITERATIONS==1) MESHES(NM)%WALL_WORK1 = 0._EB
       CALL PRESSURE_SOLVER_COMPUTE_RHS(T,DT,NM)
-         ! ---> 内存中保存切片
-      IF (WRITE_DATA) THEN
-         M => MESHES(NM)
-         EXPORT_DATA(NM)%RHS(1:M%IBAR, 1:M%JBAR, 1:M%KBAR) = M%PRHS(1:M%IBAR, 1:M%JBAR, 1:M%KBAR)
-      ENDIF
    ENDDO
-   
-   ! 1. 记录求解前的时间
+
    T_START_POISSON = CURRENT_TIME()
-   
-   ! 2. 调用泊松求解器
+
    SELECT CASE(PRES_FLAG)
       CASE (FFT_FLAG)
          IF (TUNNEL_PRECONDITIONER) CALL TUNNEL_POISSON_SOLVER
@@ -1571,25 +1491,20 @@ PRESSURE_ITERATION_LOOP: DO
             CALL ULMAT_SOLVER(NM,T,DT)
          ENDDO
    END SELECT
-   
-   ! 3. 计算单次求解时间，并累加
+
    T_ELAPSED_POISSON = CURRENT_TIME() - T_START_POISSON
    TOTAL_T_POISSON = TOTAL_T_POISSON + T_ELAPSED_POISSON
    COUNT_POISSON = COUNT_POISSON + 1
 
-   ! 4. ========== 受控的实时心跳输出 (防止刷屏) ==========
    IF (MY_RANK == 0) THEN
-      ! 只在第 1 次内部迭代，或者每隔 100 次内部迭代时输出一次信息
-      IF (ICYC == 100)  THEN
+      IF (MOD(ICYC, 100) == 0 .AND. PRESSURE_ITERATIONS == 1)  THEN
          WRITE(*,*) ' Poisson Solver CPU Time for ICYC=', ICYC, &
                     ' ITER=', PRESSURE_ITERATIONS, &
                     ' is ', T_ELAPSED_POISSON, ' seconds.'
          FLUSH(6) 
       ENDIF
    ENDIF
-   ! =================================================================
 
-   ! Check the residuals of the Poisson solution
    DO NM=LOWER_MESH_INDEX,UPPER_MESH_INDEX
       SELECT CASE(PRES_FLAG)
          CASE DEFAULT
@@ -1601,19 +1516,17 @@ PRESSURE_ITERATION_LOOP: DO
 
    IF (.NOT.ITERATE_PRESSURE) EXIT PRESSURE_ITERATION_LOOP
 
-   ! Exchange both H or HS and FVX, FVY, FVZ and then estimate values of U, V, W (US, VS, WS) at next time step.
    CALL MESH_EXCHANGE(5)
 
    DO NM=LOWER_MESH_INDEX,UPPER_MESH_INDEX
       CALL COMPUTE_VELOCITY_ERROR(DT,NM)
-      IF (CC_IBM) CALL CC_COMPUTE_VELOCITY_ERROR(DT,NM) ! Inside solids respect to zero velocity.
+      IF (CC_IBM) CALL CC_COMPUTE_VELOCITY_ERROR(DT,NM)
    ENDDO
 
-   ! Make all MPI processes aware of the maximum velocity error to decide if another pressure iteration is needed.
    IF (N_MPI_PROCESSES>1) THEN
       TNOW = CURRENT_TIME()
-      REAL_BUFFER_10( 1,LOWER_MESH_INDEX:UPPER_MESH_INDEX) = VELOCITY_ERROR_MAX(LOWER_MESH_INDEX:UPPER_MESH_INDEX)
-      REAL_BUFFER_10( 2,LOWER_MESH_INDEX:UPPER_MESH_INDEX) = PRESSURE_ERROR_MAX(LOWER_MESH_INDEX:UPPER_MESH_INDEX)
+      REAL_BUFFER_10(  1,LOWER_MESH_INDEX:UPPER_MESH_INDEX) = VELOCITY_ERROR_MAX(LOWER_MESH_INDEX:UPPER_MESH_INDEX)
+      REAL_BUFFER_10(  2,LOWER_MESH_INDEX:UPPER_MESH_INDEX) = PRESSURE_ERROR_MAX(LOWER_MESH_INDEX:UPPER_MESH_INDEX)
       REAL_BUFFER_10(3:5,LOWER_MESH_INDEX:UPPER_MESH_INDEX) = VELOCITY_ERROR_MAX_LOC(1:3,LOWER_MESH_INDEX:UPPER_MESH_INDEX)
       REAL_BUFFER_10(6:8,LOWER_MESH_INDEX:UPPER_MESH_INDEX) = PRESSURE_ERROR_MAX_LOC(1:3,LOWER_MESH_INDEX:UPPER_MESH_INDEX)
       CALL MPI_ALLGATHERV(MPI_IN_PLACE,0,MPI_DATATYPE_NULL,REAL_BUFFER_10(1:10,1:NMESHES),&
@@ -1624,7 +1537,7 @@ PRESSURE_ITERATION_LOOP: DO
       PRESSURE_ERROR_MAX_LOC(1:3,:) = INT(REAL_BUFFER_10(6:8,:))
       T_USED(11)=T_USED(11) + CURRENT_TIME() - TNOW
    ENDIF
-   IF (PRES_FLAG==ULMAT_FLAG) CALL ULMAT_ML_EXPORT_OUTER_ERRORS(T,DT)
+
    IF (MY_RANK==0 .AND. VELOCITY_ERROR_FILE) THEN
       NM_MAX_V = MAXLOC(VELOCITY_ERROR_MAX,DIM=1)
       NM_MAX_P = MAXLOC(PRESSURE_ERROR_MAX,DIM=1)
@@ -1636,14 +1549,13 @@ PRESSURE_ITERATION_LOOP: DO
          PRESSURE_ERROR_MAX_LOC(3,NM_MAX_P),',',MAXVAL(PRESSURE_ERROR_MAX)
    ENDIF
 
-   ! If the VELOCITY_TOLERANCE is satisfied or max/min iterations are hit, exit the loop.
    IF (MAXVAL(PRESSURE_ERROR_MAX)<PRESSURE_TOLERANCE) ITERATE_BAROCLINIC_TERM = .FALSE.
 
+   ! =========核心跳出判断逻辑 =========
    IF ((MAXVAL(PRESSURE_ERROR_MAX)<PRESSURE_TOLERANCE .AND. &
         MAXVAL(VELOCITY_ERROR_MAX)<VELOCITY_TOLERANCE) .OR. PRESSURE_ITERATIONS>=MAX_PRESSURE_ITERATIONS) &
       EXIT PRESSURE_ITERATION_LOOP
 
-   ! Exit the iteration loop if satisfactory progress is not achieved
    IF (SUSPEND_PRESSURE_ITERATIONS .AND. ICYC>10) THEN
       IF (PRESSURE_ITERATIONS>3 .AND.  &
          MAXVAL(VELOCITY_ERROR_MAX)>ITERATION_SUSPEND_FACTOR*VELOCITY_ERROR_MAX_OLD .AND. &
@@ -1654,34 +1566,29 @@ PRESSURE_ITERATION_LOOP: DO
 
 ENDDO PRESSURE_ITERATION_LOOP
 
-
 ! ====== 累加当前调用（预测或校正）的数据 ======
-! 1. 步级与阶段级累加 (为了200步和1000步输出)
 STEP_TOTAL_T_POISSON  = STEP_TOTAL_T_POISSON  + TOTAL_T_POISSON
 STEP_COUNT_POISSON    = STEP_COUNT_POISSON    + COUNT_POISSON
 
 STAGE_TOTAL_T_POISSON = STAGE_TOTAL_T_POISSON + TOTAL_T_POISSON
 STAGE_COUNT_POISSON   = STAGE_COUNT_POISSON   + COUNT_POISSON
 
-! 2. 全局级累加 (为了最终的总体报告)
 ALL_TOTAL_T_POISSON = ALL_TOTAL_T_POISSON + TOTAL_T_POISSON
 ALL_COUNT_POISSON   = ALL_COUNT_POISSON   + COUNT_POISSON
 
 IF (CORRECTOR) THEN
-   ! 步与阶段的校正步累加
    STEP_CORR_T_POISSON  = STEP_CORR_T_POISSON  + TOTAL_T_POISSON
    STEP_CORR_COUNT_POISSON = STEP_CORR_COUNT_POISSON + COUNT_POISSON
 
    STAGE_CORR_T_POISSON = STAGE_CORR_T_POISSON + TOTAL_T_POISSON
    STAGE_CORR_COUNT_POISSON = STAGE_CORR_COUNT_POISSON + COUNT_POISSON
    
-   ! 全局的校正步累加
    GLOBAL_TOTAL_T_POISSON = GLOBAL_TOTAL_T_POISSON + TOTAL_T_POISSON
    GLOBAL_COUNT_POISSON = GLOBAL_COUNT_POISSON + COUNT_POISSON
 ENDIF
 
 ! =====================================================================
-! 输出时间步与阶段的压力求解汇总信息并分别导出 CSV (专为与 CNN 性能对比)
+! 统计结果的动态 CSV 生成与输出打印
 ! =====================================================================
 IF (MY_RANK==0) THEN
    SELECT CASE(PRES_FLAG)
@@ -1692,91 +1599,81 @@ IF (MY_RANK==0) THEN
       CASE DEFAULT;       SOLVER_NAME = 'UNKNOWN'
    END SELECT
 
-   ! 只在校正步(CORRECTOR)结束时进行判断并输出（此时当前时间步已执行完整）
    IF (CORRECTOR) THEN
 
-      ! ================= 1. 每隔200步输出当前时间步的信息 =================
-      IF (MOD(ICYC, 200) == 0) THEN
-         STAT_FILE_200 = TRIM(CHID) // '_poisson_step_200.csv'
+      ! ================= 1. 步级统计信息输出 =================
+      IF (MOD(ICYC, FREQ_STEP) == 0) THEN
+         WRITE(STAT_FILE_STEP, '(A,A,I0,A)') TRIM(CHID), '_poisson_step_', FREQ_STEP, '.csv'
 
-         ! 初始化文件并写入表头
-         IF (.NOT. STAT_CSV_200_INITIALIZED) THEN
-            OPEN(NEWUNIT=STAT_UNIT_200, FILE=TRIM(STAT_FILE_200), STATUS='REPLACE', IOSTAT=IERR)
+         IF (.NOT. STAT_CSV_STEP_INIT) THEN
+            OPEN(NEWUNIT=STAT_UNIT_STEP, FILE=TRIM(STAT_FILE_STEP), STATUS='REPLACE', IOSTAT=IERR)
             IF (IERR == 0) THEN
-               WRITE(STAT_UNIT_200, '(A)') 'ICYC,Time(s),Solver,Step_Total_Iter,Step_Total_Time(s),Step_Avg_Time(s),Corr_Iter,Corr_Total_Time(s),Corr_Avg_Time(s)'
-               CLOSE(STAT_UNIT_200)
-               STAT_CSV_200_INITIALIZED = .TRUE.
+               WRITE(STAT_UNIT_STEP, '(A)') 'ICYC,Time(s),Solver,Step_Total_Iter,Step_Total_Time(s),Step_Avg_Time(s),Corr_Iter,Corr_Total_Time(s),Corr_Avg_Time(s)'
+               CLOSE(STAT_UNIT_STEP)
+               STAT_CSV_STEP_INIT = .TRUE.
             ENDIF
          ENDIF
 
-         ! 计算平均时间 (安全防除零)
          AVG_STEP_TOTAL = 0.0_EB
          IF (STEP_COUNT_POISSON > 0) AVG_STEP_TOTAL = STEP_TOTAL_T_POISSON / REAL(STEP_COUNT_POISSON, EB)
 
          AVG_STEP_CORR = 0.0_EB
          IF (STEP_CORR_COUNT_POISSON > 0) AVG_STEP_CORR = STEP_CORR_T_POISSON / REAL(STEP_CORR_COUNT_POISSON, EB)
 
-         ! 追加写入数据
-         IF (STAT_CSV_200_INITIALIZED) THEN
-            OPEN(NEWUNIT=STAT_UNIT_200, FILE=TRIM(STAT_FILE_200), STATUS='OLD', POSITION='APPEND', IOSTAT=IERR)
+         IF (STAT_CSV_STEP_INIT) THEN
+            OPEN(NEWUNIT=STAT_UNIT_STEP, FILE=TRIM(STAT_FILE_STEP), STATUS='OLD', POSITION='APPEND', IOSTAT=IERR)
             IF (IERR == 0) THEN
-               WRITE(STAT_UNIT_200, '(I0,A,ES15.7,A,A,A,I0,A,ES15.7,A,ES15.7,A,I0,A,ES15.7,A,ES15.7)') &
+               WRITE(STAT_UNIT_STEP, '(I0,A,ES15.7,A,A,A,I0,A,ES15.7,A,ES15.7,A,I0,A,ES15.7,A,ES15.7)') &
                   ICYC, ',', T, ',', TRIM(SOLVER_NAME), ',', &
                   STEP_COUNT_POISSON, ',', STEP_TOTAL_T_POISSON, ',', AVG_STEP_TOTAL, ',', &
                   STEP_CORR_COUNT_POISSON, ',', STEP_CORR_T_POISSON, ',', AVG_STEP_CORR
-               CLOSE(STAT_UNIT_200)
+               CLOSE(STAT_UNIT_STEP)
             ENDIF
          ENDIF
 
-         ! 可选：在终端打印当前步汇总
          WRITE(*,'(A)') '------------------------------------------------------------'
-         WRITE(*,'(A,I0,A,ES12.5,A,A)') ' >>> [Step Stats 200] ICYC=', ICYC, ' | T=', T, ' | SOLVER=', TRIM(SOLVER_NAME)
+         WRITE(*,'(A,I0,A,I0,A,ES12.5,A,A)') ' >>> [Step Stats ', FREQ_STEP, '] ICYC=', ICYC, ' | T=', T, ' | SOLVER=', TRIM(SOLVER_NAME)
          WRITE(*,'(A,I0,A,ES12.5,A)') '     -> Step Total Iters : ', STEP_COUNT_POISSON, ' | Time : ', STEP_TOTAL_T_POISSON, ' s'
          WRITE(*,'(A,I0,A,ES12.5,A)') '     -> Step Corr  Iters : ', STEP_CORR_COUNT_POISSON, ' | Time : ', STEP_CORR_T_POISSON, ' s'
          WRITE(*,'(A)') '------------------------------------------------------------'
       ENDIF
 
-      ! ================= 2. 每隔1000步输出该阶段统计信息 =================
-      IF (MOD(ICYC, 1000) == 0) THEN
-         STAT_FILE_1000 = TRIM(CHID) // '_poisson_stage_1000.csv'
+      ! ================= 2. 阶段级统计信息输出 =================
+      IF (MOD(ICYC, FREQ_STAGE) == 0) THEN
+         WRITE(STAT_FILE_STAGE, '(A,A,I0,A)') TRIM(CHID), '_poisson_stage_', FREQ_STAGE, '.csv'
 
-         ! 初始化文件并写入表头
-         IF (.NOT. STAT_CSV_1000_INITIALIZED) THEN
-            OPEN(NEWUNIT=STAT_UNIT_1000, FILE=TRIM(STAT_FILE_1000), STATUS='REPLACE', IOSTAT=IERR)
+         IF (.NOT. STAT_CSV_STAGE_INIT) THEN
+            OPEN(NEWUNIT=STAT_UNIT_STAGE, FILE=TRIM(STAT_FILE_STAGE), STATUS='REPLACE', IOSTAT=IERR)
             IF (IERR == 0) THEN
-               WRITE(STAT_UNIT_1000, '(A)') 'ICYC_End,Time(s),Solver,Stage_Total_Iter,Stage_Total_Time(s),Stage_Avg_Time(s),Stage_Corr_Iter,Stage_Corr_Total_Time(s),Stage_Corr_Avg_Time(s)'
-               CLOSE(STAT_UNIT_1000)
-               STAT_CSV_1000_INITIALIZED = .TRUE.
+               WRITE(STAT_UNIT_STAGE, '(A)') 'ICYC_End,Time(s),Solver,Stage_Total_Iter,Stage_Total_Time(s),Stage_Avg_Time(s),Stage_Corr_Iter,Stage_Corr_Total_Time(s),Stage_Corr_Avg_Time(s)'
+               CLOSE(STAT_UNIT_STAGE)
+               STAT_CSV_STAGE_INIT = .TRUE.
             ENDIF
          ENDIF
 
-         ! 计算平均时间 (安全防除零)
          AVG_STAGE_TOTAL = 0.0_EB
          IF (STAGE_COUNT_POISSON > 0) AVG_STAGE_TOTAL = STAGE_TOTAL_T_POISSON / REAL(STAGE_COUNT_POISSON, EB)
 
          AVG_STAGE_CORR = 0.0_EB
          IF (STAGE_CORR_COUNT_POISSON > 0) AVG_STAGE_CORR = STAGE_CORR_T_POISSON / REAL(STAGE_CORR_COUNT_POISSON, EB)
 
-         ! 追加写入数据
-         IF (STAT_CSV_1000_INITIALIZED) THEN
-            OPEN(NEWUNIT=STAT_UNIT_1000, FILE=TRIM(STAT_FILE_1000), STATUS='OLD', POSITION='APPEND', IOSTAT=IERR)
+         IF (STAT_CSV_STAGE_INIT) THEN
+            OPEN(NEWUNIT=STAT_UNIT_STAGE, FILE=TRIM(STAT_FILE_STAGE), STATUS='OLD', POSITION='APPEND', IOSTAT=IERR)
             IF (IERR == 0) THEN
-               WRITE(STAT_UNIT_1000, '(I0,A,ES15.7,A,A,A,I0,A,ES15.7,A,ES15.7,A,I0,A,ES15.7,A,ES15.7)') &
+               WRITE(STAT_UNIT_STAGE, '(I0,A,ES15.7,A,A,A,I0,A,ES15.7,A,ES15.7,A,I0,A,ES15.7,A,ES15.7)') &
                   ICYC, ',', T, ',', TRIM(SOLVER_NAME), ',', &
                   STAGE_COUNT_POISSON, ',', STAGE_TOTAL_T_POISSON, ',', AVG_STAGE_TOTAL, ',', &
                   STAGE_CORR_COUNT_POISSON, ',', STAGE_CORR_T_POISSON, ',', AVG_STAGE_CORR
-               CLOSE(STAT_UNIT_1000)
+               CLOSE(STAT_UNIT_STAGE)
             ENDIF
          ENDIF
 
-         ! 可选：终端打印阶段汇总
          WRITE(*,'(A)') '============================================================'
-         WRITE(*,'(A,I0,A,ES12.5)') ' >>> [Stage Stats 1000] Completed at ICYC=', ICYC, ' | T=', T
+         WRITE(*,'(A,I0,A,I0,A,ES12.5)') ' >>> [Stage Stats ', FREQ_STAGE, '] Completed at ICYC=', ICYC, ' | T=', T
          WRITE(*,'(A,I0,A,ES12.5,A)') '     -> Stage Total Iters: ', STAGE_COUNT_POISSON, ' | Time : ', STAGE_TOTAL_T_POISSON, ' s'
          WRITE(*,'(A,I0,A,ES12.5,A)') '     -> Stage Corr  Iters: ', STAGE_CORR_COUNT_POISSON, ' | Time : ', STAGE_CORR_T_POISSON, ' s'
          WRITE(*,'(A)') '============================================================'
 
-         ! 阶段信息输出完毕后，重置阶段累加器
          STAGE_TOTAL_T_POISSON = 0.0_EB
          STAGE_COUNT_POISSON = 0
          STAGE_CORR_T_POISSON = 0.0_EB
@@ -1785,8 +1682,7 @@ IF (MY_RANK==0) THEN
    ENDIF
 ENDIF
 
-
-! ===== 模拟结束时的最终汇总报告 =====
+! ===== 模拟结束时的最终全局汇总报告 =====
 IF (CORRECTOR .AND. (STOP_STATUS/=NO_STOP .OR. (T+DT)>=T_END)) THEN
    WRITE(*,'(A)') '========================================================'
    WRITE(*,'(A)') ' Poisson Solver Final Statistics Report'
@@ -1806,70 +1702,8 @@ IF (CORRECTOR .AND. (STOP_STATUS/=NO_STOP .OR. (T+DT)>=T_END)) THEN
    WRITE(*,'(A)') '========================================================'
 ENDIF
 
-
-! ----- 迭代结束后，保存新压力 -----
-IF (WRITE_DATA) THEN
-   DO NM = LOWER_MESH_INDEX, UPPER_MESH_INDEX
-      M => MESHES(NM)
-      IF (PREDICTOR) THEN
-         EXPORT_DATA(NM)%PNEW = M%H(1:M%IBAR,  1:M%JBAR, 1:M%KBAR)
-      ELSE
-         EXPORT_DATA(NM)%PNEW = M%HS(1:M%IBAR, 1:M%JBAR, 1:M%KBAR)
-      ENDIF
-   ENDDO
-ENDIF
-   
-! ----- 写出文件 -----
-IF (WRITE_DATA) THEN
-   DO NM = LOWER_MESH_INDEX, UPPER_MESH_INDEX
-      M => MESHES(NM)
-      CSV_FILE = ''
-      BIN_FILE = ''
-      IERR = 0
-
-      WRITE(CSV_FILE, '(A,A,I0,A,I0,A)') TRIM(CHID), '_pressure_m', NM, '_step', ICYC, '.csv'
-         ! WRITE(CSV_FILE, '(A,A,I0,A,I8.8,A)') TRIM(CHID), '_pressure_m', NM, '_step', ICYC, '.csv'
-      WRITE(BIN_FILE, '(A,A,I0,A,I0,A)') TRIM(CHID), '_pressure_m', NM, '_step', ICYC, '.bin'
-
-      ! 3. 写 CSV
-      IO_UNIT = -1
-      OPEN(NEWUNIT=IO_UNIT, FILE=TRIM(CSV_FILE), STATUS='REPLACE', FORM='FORMATTED', IOSTAT=IERR)
-      IF (IERR == 0) THEN
-         WRITE(IO_UNIT, '(A)') 'I,J,K,X,Y,Z,Ustar,Vstar,Wstar,D_target,RHS,T,RHO,P_old,P_new,DT,' // &
-            'QX_LOW,QX_HIGH,QZ_LOW,QZ_HIGH,RDX_CELL,RDZ_CELL,RDXN_LOW,RDXN_HIGH,RDZN_LOW,RDZN_HIGH'
-         ! Fortran 是列主序，最内层循环应该是 I，然后 J，最外层 K。
-         DO KK = 1, M%KBAR
-            DO JJ = 1, M%JBAR
-               DO II = 1, M%IBAR
-                  IF (M%CELL(M%CELL_INDEX(II,JJ,KK))%SOLID) CYCLE
-                  QX_LOW  = 0.5_EB*(M%U(II-1,JJ,KK) + M%US(II-1,JJ,KK) - DT*M%FVX(II-1,JJ,KK))
-                  QX_HIGH = 0.5_EB*(M%U(II  ,JJ,KK) + M%US(II  ,JJ,KK) - DT*M%FVX(II  ,JJ,KK))
-                  QZ_LOW  = 0.5_EB*(M%W(II,JJ,KK-1) + M%WS(II,JJ,KK-1) - DT*M%FVZ(II,JJ,KK-1))
-                  QZ_HIGH = 0.5_EB*(M%W(II,JJ,KK  ) + M%WS(II,JJ,KK  ) - DT*M%FVZ(II,JJ,KK  ))
-                  WRITE(IO_UNIT, '(I0,",",I0,",",I0,",",23(ES15.7,:,","))') &
-                       II, JJ, KK, M%XC(II), M%YC(JJ), M%ZC(KK),    &
-                       EXPORT_DATA(NM)%USTAR(II,JJ,KK),EXPORT_DATA(NM)%VSTAR(II,JJ,KK), EXPORT_DATA(NM)%WSTAR(II,JJ,KK), &
-                       EXPORT_DATA(NM)%DIV(II,JJ,KK), EXPORT_DATA(NM)%RHS(II,JJ,KK),     &
-                       EXPORT_DATA(NM)%TEMP(II,JJ,KK), EXPORT_DATA(NM)%RHO(II,JJ,KK),    &
-                       EXPORT_DATA(NM)%POLD(II,JJ,KK), EXPORT_DATA(NM)%PNEW(II,JJ,KK), DT, &
-                       QX_LOW,QX_HIGH,QZ_LOW,QZ_HIGH,M%RDX(II),M%RDZ(KK), &
-                       M%RDXN(II-1),M%RDXN(II),M%RDZN(KK-1),M%RDZN(KK)
-               ENDDO
-            ENDDO
-         ENDDO
-         CLOSE(IO_UNIT)
-      ELSE
-         WRITE(LU_ERR,*) 'ERROR: Cannot open CSV file ', TRIM(CSV_FILE), ' IOSTAT=', IERR
-      END IF
-
-   ENDDO
-   
-   ! 写完后立即释放内存，保持低开销
-   DEALLOCATE(EXPORT_DATA)
-END IF
-
-
 END SUBROUTINE PRESSURE_ITERATION_SCHEME
+
 
 
 !> \brief Compute a running average of the source correction factor for the radiative transport scheme.
