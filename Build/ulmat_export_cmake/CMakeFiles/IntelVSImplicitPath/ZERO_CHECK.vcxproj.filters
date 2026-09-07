@@ -1,0 +1,13 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<Project ToolsVersion="17.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <ItemGroup>
+    <CustomBuild Include="F:\2CcodExap\AaaaaIi\4FireFDS\fireGIT\fds\Build\ulmat_export_cmake\CMakeFiles\IntelVSImplicitPath\CMakeFiles\9536d6bbf5028f2821dfed6558d75f53\generate.stamp.rule">
+      <Filter>CMake Rules</Filter>
+    </CustomBuild>
+  </ItemGroup>
+  <ItemGroup>
+    <Filter Include="CMake Rules">
+      <UniqueIdentifier>{4522CE8B-02D7-337F-9DA9-8FFEC3F83A03}</UniqueIdentifier>
+    </Filter>
+  </ItemGroup>
+</Project>

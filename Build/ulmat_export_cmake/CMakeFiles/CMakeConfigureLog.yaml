@@ -1,0 +1,430 @@
+
+---
+events:
+  -
+    kind: "message-v1"
+    backtrace:
+      - "C:/Program Files/CMake/share/cmake-4.0/Modules/CMakeDetermineSystem.cmake:205 (message)"
+      - "CMakeLists.txt:3 (project)"
+    message: |
+      The system is: Windows - 10.0.19045 - AMD64
+  -
+    kind: "message-v1"
+    backtrace:
+      - "C:/Program Files/CMake/share/cmake-4.0/Modules/CMakeDetermineCompilerId.cmake:17 (message)"
+      - "C:/Program Files/CMake/share/cmake-4.0/Modules/CMakeDetermineCompilerId.cmake:64 (__determine_compiler_id_test)"
+      - "C:/Program Files/CMake/share/cmake-4.0/Modules/CMakeDetermineFortranCompiler.cmake:190 (CMAKE_DETERMINE_COMPILER_ID)"
+      - "CMakeLists.txt:3 (project)"
+    message: |
+      Compiling the Fortran compiler identification source file "CMakeFortranCompilerId.F" succeeded.
+      Compiler:  
+      Build flags: 
+      Id flags:  
+      
+      The output was:
+      0
+      
+      Microsoft Visual Studio 2022 鐗堟湰 17.14.13 (August 2025).
+      鐗堟潈鎵€鏈?C) Microsoft Corp.銆備繚鐣欐墍鏈夋潈鍒┿€?
+      鐢熸垚寮€濮嬩簬 17:05...
+      1>------ 宸插惎鍔ㄧ敓鎴? 椤圭洰: CompilerIdFortran, 閰嶇疆: Debug x64 ------
+      Compiling with Intel庐 Fortran Compiler 2025.2.1 [Intel(R) 64]...
+      CMakeFortranCompilerId.F
+      Intel(R) Fortran Compiler for applications running on Intel(R) 64, Version 2025.2.0 Build 20250605
+      Copyright (C) 1985-2025 Intel Corporation. All rights reserved.
+      Linking...
+      Microsoft (R) Incremental Linker Version 14.44.35215.0
+      Copyright (C) Microsoft Corporation.  All rights reserved.
+      /OUT:./CompilerIdFortran.exe
+      /INCREMENTAL:NO
+      /MANIFEST
+      /MANIFESTFILE:Debug/CompilerIdFortran.exe.intermediate.manifest
+      "/MANIFESTUAC:level='asInvoker' uiAccess='false'"
+      /DEBUG
+      /PDB:F:/2CcodExap/AaaaaIi/4FireFDS/fireGIT/fds/Build/ulmat_export_cmake/CMakeFiles/4.0.1/CompilerIdFortran/CompilerIdFortran.pdb
+      /SUBSYSTEM:CONSOLE
+      /IMPLIB:F:/2CcodExap/AaaaaIi/4FireFDS/fireGIT/fds/Build/ulmat_export_cmake/CMakeFiles/4.0.1/CompilerIdFortran/CompilerIdFortran.lib
+      Debug/CMakeFortranCompilerId.obj
+      Embedding manifest...
+      Performing Post-Build Event...
+      CMAKE_Fortran_COMPILER=C:\\Program Files (x86)\\Intel\\oneAPI\\compiler\\2025.2\\bin\\ifx.exe
+      
+      Build log written to  "file://F:/2CcodExap/AaaaaIi/4FireFDS/fireGIT/fds/Build/ulmat_export_cmake/CMakeFiles/4.0.1/CompilerIdFortran/Debug/BuildLog.htm"
+      CompilerIdFortran - 0 error(s), 0 warning(s)
+      ========== 鐢熸垚: 1 鎴愬姛锛? 澶辫触锛? 鏈€鏂帮紝0 宸茶烦杩?==========
+      ========== 鐢熸垚 浜?17:05 瀹屾垚锛岃€楁椂 04.071 绉?==========
+      
+      
+      Compilation of the Fortran compiler identification source "CMakeFortranCompilerId.F" produced "CompilerIdFortran.exe"
+      
+      Compilation of the Fortran compiler identification source "CMakeFortranCompilerId.F" produced "CompilerIdFortran.pdb"
+      
+      Compilation of the Fortran compiler identification source "CMakeFortranCompilerId.F" produced "CompilerIdFortran.u2d"
+      
+      Compilation of the Fortran compiler identification source "CMakeFortranCompilerId.F" produced "CompilerIdFortran.vfproj"
+      
+      The Fortran compiler identification is IntelLLVM, found in:
+        F:/2CcodExap/AaaaaIi/4FireFDS/fireGIT/fds/Build/ulmat_export_cmake/CMakeFiles/4.0.1/CompilerIdFortran/CompilerIdFortran.exe
+      
+  -
+    kind: "try_compile-v1"
+    backtrace:
+      - "C:/Program Files/CMake/share/cmake-4.0/Modules/CMakeDetermineCompilerABI.cmake:83 (try_compile)"
+      - "C:/Program Files/CMake/share/cmake-4.0/Modules/CMakeTestFortranCompiler.cmake:20 (CMAKE_DETERMINE_COMPILER_ABI)"
+      - "CMakeLists.txt:3 (project)"
+    checks:
+      - "Detecting Fortran compiler ABI info"
+    directories:
+      source: "F:/2CcodExap/AaaaaIi/4FireFDS/fireGIT/fds/Build/ulmat_export_cmake/CMakeFiles/CMakeScratch/TryCompile-x0cs78"
+      binary: "F:/2CcodExap/AaaaaIi/4FireFDS/fireGIT/fds/Build/ulmat_export_cmake/CMakeFiles/CMakeScratch/TryCompile-x0cs78"
+    cmakeVariables:
+      CMAKE_EXE_LINKER_FLAGS: "/machine:x64"
+      CMAKE_Fortran_FLAGS: "/nologo /fpp"
+      CMAKE_Fortran_FLAGS_DEBUG: "/Od /debug:full"
+    buildResult:
+      variable: "CMAKE_Fortran_ABI_COMPILED"
+      cached: true
+      stdout: |
+        Change Dir: 'F:/2CcodExap/AaaaaIi/4FireFDS/fireGIT/fds/Build/ulmat_export_cmake/CMakeFiles/CMakeScratch/TryCompile-x0cs78'
+        
+        Run Build Command(s): "C:/Program Files/Microsoft Visual Studio/2022/Community/Common7/IDE/devenv.com" CMAKE_TRY_COMPILE.sln /build Debug /project cmTC_7693c
+        
+        Microsoft Visual Studio 2022 鐗堟湰 17.14.13 (August 2025).
+        鐗堟潈鎵€鏈?C) Microsoft Corp.銆備繚鐣欐墍鏈夋潈鍒┿€?
+        鐢熸垚寮€濮嬩簬 17:05...
+        1>------ 宸插惎鍔ㄧ敓鎴? 椤圭洰: cmTC_7693c, 閰嶇疆: Debug x64 ------
+        Compiling with Intel庐 Fortran Compiler 2025.2.1 [Intel(R) 64]...
+        CMakeFortranCompilerABI.F90
+        Compiling manifest to resources...
+        Microsoft (R) Windows (R) Resource Compiler Version 10.0.10011.16384
+        Copyright (C) Microsoft Corporation.  All rights reserved.
+        Linking...
+        Microsoft (R) Incremental Linker Version 14.44.35215.0
+        Copyright (C) Microsoft Corporation.  All rights reserved.
+        /OUT:F:/2CcodExap/AaaaaIi/4FireFDS/fireGIT/fds/Build/ulmat_export_cmake/CMakeFiles/CMakeScratch/TryCompile-x0cs78/Debug/cmTC_7693c.exe
+        /VERSION:0.0
+        /MANIFEST
+        /MANIFESTFILE:cmTC_7693c.dir/Debug/cmTC_7693c.exe.intermediate.manifest
+        "/MANIFESTUAC:level='asInvoker' uiAccess='false'"
+        /DEBUG
+        /PDB:F:/2CcodExap/AaaaaIi/4FireFDS/fireGIT/fds/Build/ulmat_export_cmake/CMakeFiles/CMakeScratch/TryCompile-x0cs78/Debug/cmTC_7693c.pdb
+        /SUBSYSTEM:CONSOLE
+        /IMPLIB:F:/2CcodExap/AaaaaIi/4FireFDS/fireGIT/fds/Build/ulmat_export_cmake/CMakeFiles/CMakeScratch/TryCompile-x0cs78/Debug/cmTC_7693c.lib
+        /machine:x64
+        /debug
+        /INCREMENTAL
+        cmTC_7693c.dir/Debug/CMakeFortranCompilerABI.obj
+        cmTC_7693c.dir/Debug/cmTC_7693c.exe.embed.manifest.res
+        Embedding manifest...
+        Microsoft (R) Manifest Tool
+        Copyright (c) Microsoft Corporation.
+        All rights reserved.
+        
+        Build log written to  "file://F:/2CcodExap/AaaaaIi/4FireFDS/fireGIT/fds/Build/ulmat_export_cmake/CMakeFiles/CMakeScratch/TryCompile-x0cs78/cmTC_7693c.dir/Debug/BuildLog.htm"
+        cmTC_7693c - 0 error(s), 0 warning(s)
+        ========== 鐢熸垚: 1 鎴愬姛锛? 澶辫触锛? 鏈€鏂帮紝0 宸茶烦杩?==========
+        ========== 鐢熸垚 浜?17:05 瀹屾垚锛岃€楁椂 00.994 绉?==========
+        
+      exitCode: 0
+  -
+    kind: "message-v1"
+    backtrace:
+      - "C:/Program Files/CMake/share/cmake-4.0/Modules/CMakeDetermineCompilerABI.cmake:227 (message)"
+      - "C:/Program Files/CMake/share/cmake-4.0/Modules/CMakeTestFortranCompiler.cmake:20 (CMAKE_DETERMINE_COMPILER_ABI)"
+      - "CMakeLists.txt:3 (project)"
+    message: |
+      Parsed Fortran implicit link information:
+        link line regex: [^( *|.*[/\\])(ld[0-9]*(|\\.[a-rt-z][a-z]*|\\.s[a-np-z][a-z]*|\\.so[a-z]+)|link\\.exe|lld-link(\\.exe)?|CMAKE_LINK_STARTFILE-NOTFOUND|([^/\\]+-)?ld|collect2)[^/\\]*( |$)]
+        linker tool regex: [^[ 	]*(->|")?[ 	]*(([^"]*[/\\])?(ld[0-9]*(|\\.[a-rt-z][a-z]*|\\.s[a-np-z][a-z]*|\\.so[a-z]+)|link\\.exe|lld-link(\\.exe)?))("|,| |$)]
+        implicit libs: []
+        implicit objs: []
+        implicit dirs: []
+        implicit fwks: []
+      
+      
+  -
+    kind: "try_compile-v1"
+    backtrace:
+      - "C:/Program Files/CMake/share/cmake-4.0/Modules/CMakeDetermineCompilerABI.cmake:236 (try_compile)"
+      - "C:/Program Files/CMake/share/cmake-4.0/Modules/CMakeTestFortranCompiler.cmake:20 (CMAKE_DETERMINE_COMPILER_ABI)"
+      - "CMakeLists.txt:3 (project)"
+    checks:
+      - "Determine Intel Fortran Compiler Implicit Link Path"
+    directories:
+      source: "C:/Program Files/CMake/share/cmake-4.0/Modules/IntelVSImplicitPath"
+      binary: "F:/2CcodExap/AaaaaIi/4FireFDS/fireGIT/fds/Build/ulmat_export_cmake/CMakeFiles/IntelVSImplicitPath"
+    buildResult:
+      variable: "IFORT_LIB_PATH_COMPILED"
+      cached: true
+      stdout: |
+        Change Dir: 'F:/2CcodExap/AaaaaIi/4FireFDS/fireGIT/fds/Build/ulmat_export_cmake/CMakeFiles/IntelVSImplicitPath'
+        
+        Run Build Command(s): "C:/Program Files/Microsoft Visual Studio/2022/Community/Common7/IDE/devenv.com" IntelFortranImplicit.sln /build Debug /project ALL_BUILD
+        
+        Microsoft Visual Studio 2022 鐗堟湰 17.14.13 (August 2025).
+        鐗堟潈鎵€鏈?C) Microsoft Corp.銆備繚鐣欐墍鏈夋潈鍒┿€?
+        鐢熸垚寮€濮嬩簬 17:06...
+        1>------ 宸插惎鍔ㄧ敓鎴? 椤圭洰: ZERO_CHECK, 閰嶇疆: Debug x64 ------
+        1>1>Checking Build System
+        2>------ 宸插惎鍔ㄧ敓鎴? 椤圭洰: FortranLib, 閰嶇疆: Debug x64 ------
+        Generating output.cmake
+        Compiling with Intel庐 Fortran Compiler 2025.2.1 [Intel(R) 64]...
+        hello.f
+        Creating library...
+        
+        Build log written to  "file://F:/2CcodExap/AaaaaIi/4FireFDS/fireGIT/fds/Build/ulmat_export_cmake/CMakeFiles/IntelVSImplicitPath/FortranLib.dir/Debug/BuildLog.htm"
+        FortranLib - 0 error(s), 0 warning(s)
+        3>------ 宸插惎鍔ㄧ敓鎴? 椤圭洰: ALL_BUILD, 閰嶇疆: Debug x64 ------
+        3>Building Custom Rule C:/Program Files/CMake/share/cmake-4.0/Modules/IntelVSImplicitPath/CMakeLists.txt
+        ========== 鐢熸垚: 3 鎴愬姛锛? 澶辫触锛? 鏈€鏂帮紝0 宸茶烦杩?==========
+        ========== 鐢熸垚 浜?17:06 瀹屾垚锛岃€楁椂 05.443 绉?==========
+        
+      exitCode: 0
+  -
+    kind: "try_compile-v1"
+    backtrace:
+      - "C:/Program Files/CMake/share/cmake-4.0/Modules/FindMPI.cmake:1286 (try_compile)"
+      - "C:/Program Files/CMake/share/cmake-4.0/Modules/FindMPI.cmake:1305 (_MPI_try_staged_settings)"
+      - "C:/Program Files/CMake/share/cmake-4.0/Modules/FindMPI.cmake:1653 (_MPI_check_lang_works)"
+      - "CMakeLists.txt:92 (find_package)"
+    description: "The MPI test test_mpi for Fortran in mode F77_HEADER"
+    directories:
+      source: "F:/2CcodExap/AaaaaIi/4FireFDS/fireGIT/fds/Build/ulmat_export_cmake/CMakeFiles/CMakeScratch/TryCompile-16sd20"
+      binary: "F:/2CcodExap/AaaaaIi/4FireFDS/fireGIT/fds/Build/ulmat_export_cmake/CMakeFiles/CMakeScratch/TryCompile-16sd20"
+    cmakeVariables:
+      CMAKE_EXE_LINKER_FLAGS: "/machine:x64"
+      CMAKE_Fortran_FLAGS: "/nologo /fpp"
+      CMAKE_Fortran_FLAGS_DEBUG: "/Od /debug:full"
+    buildResult:
+      variable: "MPI_RESULT_Fortran_test_mpi_F77_HEADER"
+      cached: true
+      stdout: |
+        Change Dir: 'F:/2CcodExap/AaaaaIi/4FireFDS/fireGIT/fds/Build/ulmat_export_cmake/CMakeFiles/CMakeScratch/TryCompile-16sd20'
+        
+        Run Build Command(s): "C:/Program Files/Microsoft Visual Studio/2022/Community/Common7/IDE/devenv.com" CMAKE_TRY_COMPILE.sln /build Debug /project cmTC_a7b42
+        
+        Microsoft Visual Studio 2022 鐗堟湰 17.14.13 (August 2025).
+        鐗堟潈鎵€鏈?C) Microsoft Corp.銆備繚鐣欐墍鏈夋潈鍒┿€?
+        鐢熸垚寮€濮嬩簬 17:07...
+        1>------ 宸插惎鍔ㄧ敓鎴? 椤圭洰: cmTC_a7b42, 閰嶇疆: Debug x64 ------
+        Compiling with Intel庐 Fortran Compiler 2025.2.1 [Intel(R) 64]...
+        test_mpi.f90
+        Compiling manifest to resources...
+        Microsoft (R) Windows (R) Resource Compiler Version 10.0.10011.16384
+        Copyright (C) Microsoft Corporation.  All rights reserved.
+        Linking...
+        Microsoft (R) Incremental Linker Version 14.44.35215.0
+        Copyright (C) Microsoft Corporation.  All rights reserved.
+        /OUT:F:/2CcodExap/AaaaaIi/4FireFDS/fireGIT/fds/Build/ulmat_export_cmake/CMakeFiles/CMakeScratch/TryCompile-16sd20/Debug/cmTC_a7b42.exe
+        /VERSION:0.0
+        /MANIFEST
+        /MANIFESTFILE:cmTC_a7b42.dir/Debug/cmTC_a7b42.exe.intermediate.manifest
+        "/MANIFESTUAC:level='asInvoker' uiAccess='false'"
+        /DEBUG
+        /PDB:F:/2CcodExap/AaaaaIi/4FireFDS/fireGIT/fds/Build/ulmat_export_cmake/CMakeFiles/CMakeScratch/TryCompile-16sd20/Debug/cmTC_a7b42.pdb
+        /SUBSYSTEM:CONSOLE
+        /IMPLIB:F:/2CcodExap/AaaaaIi/4FireFDS/fireGIT/fds/Build/ulmat_export_cmake/CMakeFiles/CMakeScratch/TryCompile-16sd20/Debug/cmTC_a7b42.lib
+        user32.lib
+        "C:/Program Files (x86)/Intel/oneAPI/mpi/latest/lib/impi.lib"
+        /machine:x64
+        /debug
+        /INCREMENTAL
+        cmTC_a7b42.dir/Debug/test_mpi.obj
+        cmTC_a7b42.dir/Debug/cmTC_a7b42.exe.embed.manifest.res
+        Embedding manifest...
+        Microsoft (R) Manifest Tool
+        Copyright (c) Microsoft Corporation.
+        All rights reserved.
+        
+        Build log written to  "file://F:/2CcodExap/AaaaaIi/4FireFDS/fireGIT/fds/Build/ulmat_export_cmake/CMakeFiles/CMakeScratch/TryCompile-16sd20/cmTC_a7b42.dir/Debug/BuildLog.htm"
+        cmTC_a7b42 - 0 error(s), 0 warning(s)
+        ========== 鐢熸垚: 1 鎴愬姛锛? 澶辫触锛? 鏈€鏂帮紝0 宸茶烦杩?==========
+        ========== 鐢熸垚 浜?17:07 瀹屾垚锛岃€楁椂 00.986 绉?==========
+        
+      exitCode: 0
+  -
+    kind: "try_compile-v1"
+    backtrace:
+      - "C:/Program Files/CMake/share/cmake-4.0/Modules/FindMPI.cmake:1286 (try_compile)"
+      - "C:/Program Files/CMake/share/cmake-4.0/Modules/FindMPI.cmake:1306 (_MPI_try_staged_settings)"
+      - "C:/Program Files/CMake/share/cmake-4.0/Modules/FindMPI.cmake:1653 (_MPI_check_lang_works)"
+      - "CMakeLists.txt:92 (find_package)"
+    description: "The MPI test test_mpi for Fortran in mode F90_MODULE"
+    directories:
+      source: "F:/2CcodExap/AaaaaIi/4FireFDS/fireGIT/fds/Build/ulmat_export_cmake/CMakeFiles/CMakeScratch/TryCompile-t4ldcx"
+      binary: "F:/2CcodExap/AaaaaIi/4FireFDS/fireGIT/fds/Build/ulmat_export_cmake/CMakeFiles/CMakeScratch/TryCompile-t4ldcx"
+    cmakeVariables:
+      CMAKE_EXE_LINKER_FLAGS: "/machine:x64"
+      CMAKE_Fortran_FLAGS: "/nologo /fpp"
+      CMAKE_Fortran_FLAGS_DEBUG: "/Od /debug:full"
+    buildResult:
+      variable: "MPI_RESULT_Fortran_test_mpi_F90_MODULE"
+      cached: true
+      stdout: |
+        Change Dir: 'F:/2CcodExap/AaaaaIi/4FireFDS/fireGIT/fds/Build/ulmat_export_cmake/CMakeFiles/CMakeScratch/TryCompile-t4ldcx'
+        
+        Run Build Command(s): "C:/Program Files/Microsoft Visual Studio/2022/Community/Common7/IDE/devenv.com" CMAKE_TRY_COMPILE.sln /build Debug /project cmTC_06e9b
+        
+        Microsoft Visual Studio 2022 鐗堟湰 17.14.13 (August 2025).
+        鐗堟潈鎵€鏈?C) Microsoft Corp.銆備繚鐣欐墍鏈夋潈鍒┿€?
+        鐢熸垚寮€濮嬩簬 17:07...
+        1>------ 宸插惎鍔ㄧ敓鎴? 椤圭洰: cmTC_06e9b, 閰嶇疆: Debug x64 ------
+        Compiling with Intel庐 Fortran Compiler 2025.2.1 [Intel(R) 64]...
+        test_mpi.f90
+        Compiling manifest to resources...
+        Microsoft (R) Windows (R) Resource Compiler Version 10.0.10011.16384
+        Copyright (C) Microsoft Corporation.  All rights reserved.
+        Linking...
+        Microsoft (R) Incremental Linker Version 14.44.35215.0
+        Copyright (C) Microsoft Corporation.  All rights reserved.
+        /OUT:F:/2CcodExap/AaaaaIi/4FireFDS/fireGIT/fds/Build/ulmat_export_cmake/CMakeFiles/CMakeScratch/TryCompile-t4ldcx/Debug/cmTC_06e9b.exe
+        /VERSION:0.0
+        /MANIFEST
+        /MANIFESTFILE:cmTC_06e9b.dir/Debug/cmTC_06e9b.exe.intermediate.manifest
+        "/MANIFESTUAC:level='asInvoker' uiAccess='false'"
+        /DEBUG
+        /PDB:F:/2CcodExap/AaaaaIi/4FireFDS/fireGIT/fds/Build/ulmat_export_cmake/CMakeFiles/CMakeScratch/TryCompile-t4ldcx/Debug/cmTC_06e9b.pdb
+        /SUBSYSTEM:CONSOLE
+        /IMPLIB:F:/2CcodExap/AaaaaIi/4FireFDS/fireGIT/fds/Build/ulmat_export_cmake/CMakeFiles/CMakeScratch/TryCompile-t4ldcx/Debug/cmTC_06e9b.lib
+        user32.lib
+        "C:/Program Files (x86)/Intel/oneAPI/mpi/latest/lib/impi.lib"
+        /machine:x64
+        /debug
+        /INCREMENTAL
+        cmTC_06e9b.dir/Debug/test_mpi.obj
+        cmTC_06e9b.dir/Debug/cmTC_06e9b.exe.embed.manifest.res
+        Embedding manifest...
+        Microsoft (R) Manifest Tool
+        Copyright (c) Microsoft Corporation.
+        All rights reserved.
+        
+        Build log written to  "file://F:/2CcodExap/AaaaaIi/4FireFDS/fireGIT/fds/Build/ulmat_export_cmake/CMakeFiles/CMakeScratch/TryCompile-t4ldcx/cmTC_06e9b.dir/Debug/BuildLog.htm"
+        cmTC_06e9b - 0 error(s), 0 warning(s)
+        ========== 鐢熸垚: 1 鎴愬姛锛? 澶辫触锛? 鏈€鏂帮紝0 宸茶烦杩?==========
+        ========== 鐢熸垚 浜?17:07 瀹屾垚锛岃€楁椂 01.030 绉?==========
+        
+      exitCode: 0
+  -
+    kind: "try_compile-v1"
+    backtrace:
+      - "C:/Program Files/CMake/share/cmake-4.0/Modules/FindMPI.cmake:1286 (try_compile)"
+      - "C:/Program Files/CMake/share/cmake-4.0/Modules/FindMPI.cmake:1307 (_MPI_try_staged_settings)"
+      - "C:/Program Files/CMake/share/cmake-4.0/Modules/FindMPI.cmake:1653 (_MPI_check_lang_works)"
+      - "CMakeLists.txt:92 (find_package)"
+    description: "The MPI test test_mpi for Fortran in mode F08_MODULE"
+    directories:
+      source: "F:/2CcodExap/AaaaaIi/4FireFDS/fireGIT/fds/Build/ulmat_export_cmake/CMakeFiles/CMakeScratch/TryCompile-nby60u"
+      binary: "F:/2CcodExap/AaaaaIi/4FireFDS/fireGIT/fds/Build/ulmat_export_cmake/CMakeFiles/CMakeScratch/TryCompile-nby60u"
+    cmakeVariables:
+      CMAKE_EXE_LINKER_FLAGS: "/machine:x64"
+      CMAKE_Fortran_FLAGS: "/nologo /fpp"
+      CMAKE_Fortran_FLAGS_DEBUG: "/Od /debug:full"
+    buildResult:
+      variable: "MPI_RESULT_Fortran_test_mpi_F08_MODULE"
+      cached: true
+      stdout: |
+        Change Dir: 'F:/2CcodExap/AaaaaIi/4FireFDS/fireGIT/fds/Build/ulmat_export_cmake/CMakeFiles/CMakeScratch/TryCompile-nby60u'
+        
+        Run Build Command(s): "C:/Program Files/Microsoft Visual Studio/2022/Community/Common7/IDE/devenv.com" CMAKE_TRY_COMPILE.sln /build Debug /project cmTC_af2b7
+        
+        Microsoft Visual Studio 2022 鐗堟湰 17.14.13 (August 2025).
+        鐗堟潈鎵€鏈?C) Microsoft Corp.銆備繚鐣欐墍鏈夋潈鍒┿€?
+        鐢熸垚寮€濮嬩簬 17:08...
+        1>------ 宸插惎鍔ㄧ敓鎴? 椤圭洰: cmTC_af2b7, 閰嶇疆: Debug x64 ------
+        Compiling with Intel庐 Fortran Compiler 2025.2.1 [Intel(R) 64]...
+        test_mpi.f90
+        Compiling manifest to resources...
+        Microsoft (R) Windows (R) Resource Compiler Version 10.0.10011.16384
+        Copyright (C) Microsoft Corporation.  All rights reserved.
+        Linking...
+        Microsoft (R) Incremental Linker Version 14.44.35215.0
+        Copyright (C) Microsoft Corporation.  All rights reserved.
+        /OUT:F:/2CcodExap/AaaaaIi/4FireFDS/fireGIT/fds/Build/ulmat_export_cmake/CMakeFiles/CMakeScratch/TryCompile-nby60u/Debug/cmTC_af2b7.exe
+        /VERSION:0.0
+        /MANIFEST
+        /MANIFESTFILE:cmTC_af2b7.dir/Debug/cmTC_af2b7.exe.intermediate.manifest
+        "/MANIFESTUAC:level='asInvoker' uiAccess='false'"
+        /DEBUG
+        /PDB:F:/2CcodExap/AaaaaIi/4FireFDS/fireGIT/fds/Build/ulmat_export_cmake/CMakeFiles/CMakeScratch/TryCompile-nby60u/Debug/cmTC_af2b7.pdb
+        /SUBSYSTEM:CONSOLE
+        /IMPLIB:F:/2CcodExap/AaaaaIi/4FireFDS/fireGIT/fds/Build/ulmat_export_cmake/CMakeFiles/CMakeScratch/TryCompile-nby60u/Debug/cmTC_af2b7.lib
+        user32.lib
+        "C:/Program Files (x86)/Intel/oneAPI/mpi/latest/lib/impi.lib"
+        /machine:x64
+        /debug
+        /INCREMENTAL
+        cmTC_af2b7.dir/Debug/test_mpi.obj
+        cmTC_af2b7.dir/Debug/cmTC_af2b7.exe.embed.manifest.res
+        Embedding manifest...
+        Microsoft (R) Manifest Tool
+        Copyright (c) Microsoft Corporation.
+        All rights reserved.
+        
+        Build log written to  "file://F:/2CcodExap/AaaaaIi/4FireFDS/fireGIT/fds/Build/ulmat_export_cmake/CMakeFiles/CMakeScratch/TryCompile-nby60u/cmTC_af2b7.dir/Debug/BuildLog.htm"
+        cmTC_af2b7 - 0 error(s), 0 warning(s)
+        ========== 鐢熸垚: 1 鎴愬姛锛? 澶辫触锛? 鏈€鏂帮紝0 宸茶烦杩?==========
+        ========== 鐢熸垚 浜?17:08 瀹屾垚锛岃€楁椂 01.097 绉?==========
+        
+      exitCode: 0
+  -
+    kind: "try_compile-v1"
+    backtrace:
+      - "C:/Program Files/CMake/share/cmake-4.0/Modules/FindMPI.cmake:1286 (try_compile)"
+      - "C:/Program Files/CMake/share/cmake-4.0/Modules/FindMPI.cmake:1715 (_MPI_try_staged_settings)"
+      - "CMakeLists.txt:92 (find_package)"
+    description: "The MPI test mpiver for Fortran in mode F08_MODULE"
+    directories:
+      source: "F:/2CcodExap/AaaaaIi/4FireFDS/fireGIT/fds/Build/ulmat_export_cmake/CMakeFiles/CMakeScratch/TryCompile-dl2y5g"
+      binary: "F:/2CcodExap/AaaaaIi/4FireFDS/fireGIT/fds/Build/ulmat_export_cmake/CMakeFiles/CMakeScratch/TryCompile-dl2y5g"
+    cmakeVariables:
+      CMAKE_EXE_LINKER_FLAGS: "/machine:x64"
+      CMAKE_Fortran_FLAGS: "/nologo /fpp"
+      CMAKE_Fortran_FLAGS_DEBUG: "/Od /debug:full"
+    buildResult:
+      variable: "MPI_RESULT_Fortran_mpiver_F08_MODULE"
+      cached: true
+      stdout: |
+        Change Dir: 'F:/2CcodExap/AaaaaIi/4FireFDS/fireGIT/fds/Build/ulmat_export_cmake/CMakeFiles/CMakeScratch/TryCompile-dl2y5g'
+        
+        Run Build Command(s): "C:/Program Files/Microsoft Visual Studio/2022/Community/Common7/IDE/devenv.com" CMAKE_TRY_COMPILE.sln /build Debug /project cmTC_6fea0
+        
+        Microsoft Visual Studio 2022 鐗堟湰 17.14.13 (August 2025).
+        鐗堟潈鎵€鏈?C) Microsoft Corp.銆備繚鐣欐墍鏈夋潈鍒┿€?
+        鐢熸垚寮€濮嬩簬 17:08...
+        1>------ 宸插惎鍔ㄧ敓鎴? 椤圭洰: cmTC_6fea0, 閰嶇疆: Debug x64 ------
+        Compiling with Intel庐 Fortran Compiler 2025.2.1 [Intel(R) 64]...
+        mpiver.f90
+        Compiling manifest to resources...
+        Microsoft (R) Windows (R) Resource Compiler Version 10.0.10011.16384
+        Copyright (C) Microsoft Corporation.  All rights reserved.
+        Linking...
+        Microsoft (R) Incremental Linker Version 14.44.35215.0
+        Copyright (C) Microsoft Corporation.  All rights reserved.
+        /OUT:F:/2CcodExap/AaaaaIi/4FireFDS/fireGIT/fds/Build/ulmat_export_cmake/CMakeFiles/CMakeScratch/TryCompile-dl2y5g/Debug/cmTC_6fea0.exe
+        /VERSION:0.0
+        /MANIFEST
+        /MANIFESTFILE:cmTC_6fea0.dir/Debug/cmTC_6fea0.exe.intermediate.manifest
+        "/MANIFESTUAC:level='asInvoker' uiAccess='false'"
+        /DEBUG
+        /PDB:F:/2CcodExap/AaaaaIi/4FireFDS/fireGIT/fds/Build/ulmat_export_cmake/CMakeFiles/CMakeScratch/TryCompile-dl2y5g/Debug/cmTC_6fea0.pdb
+        /SUBSYSTEM:CONSOLE
+        /IMPLIB:F:/2CcodExap/AaaaaIi/4FireFDS/fireGIT/fds/Build/ulmat_export_cmake/CMakeFiles/CMakeScratch/TryCompile-dl2y5g/Debug/cmTC_6fea0.lib
+        user32.lib
+        "C:/Program Files (x86)/Intel/oneAPI/mpi/latest/lib/impi.lib"
+        /machine:x64
+        /debug
+        /INCREMENTAL
+        cmTC_6fea0.dir/Debug/mpiver.obj
+        cmTC_6fea0.dir/Debug/cmTC_6fea0.exe.embed.manifest.res
+        Embedding manifest...
+        Microsoft (R) Manifest Tool
+        Copyright (c) Microsoft Corporation.
+        All rights reserved.
+        
+        Build log written to  "file://F:/2CcodExap/AaaaaIi/4FireFDS/fireGIT/fds/Build/ulmat_export_cmake/CMakeFiles/CMakeScratch/TryCompile-dl2y5g/cmTC_6fea0.dir/Debug/BuildLog.htm"
+        cmTC_6fea0 - 0 error(s), 0 warning(s)
+        ========== 鐢熸垚: 1 鎴愬姛锛? 澶辫触锛? 鏈€鏂帮紝0 宸茶烦杩?==========
+        ========== 鐢熸垚 浜?17:08 瀹屾垚锛岃€楁椂 00.990 绉?==========
+        
+      exitCode: 0
+...

@@ -1,0 +1,22 @@
+Change Dir: 'F:/2CcodExap/AaaaaIi/4FireFDS/fireGIT/fds/Build/ulmat_export_cmake/CMakeFiles/IntelVSImplicitPath'
+
+Run Build Command(s): "C:/Program Files/Microsoft Visual Studio/2022/Community/Common7/IDE/devenv.com" IntelFortranImplicit.sln /build Debug /project ALL_BUILD
+
+Microsoft Visual Studio 2022 鐗堟湰 17.14.13 (August 2025).
+鐗堟潈鎵€鏈?C) Microsoft Corp.銆備繚鐣欐墍鏈夋潈鍒┿€?
+鐢熸垚寮€濮嬩簬 17:06...
+1>------ 宸插惎鍔ㄧ敓鎴? 椤圭洰: ZERO_CHECK, 閰嶇疆: Debug x64 ------
+1>1>Checking Build System
+2>------ 宸插惎鍔ㄧ敓鎴? 椤圭洰: FortranLib, 閰嶇疆: Debug x64 ------
+Generating output.cmake
+Compiling with Intel庐 Fortran Compiler 2025.2.1 [Intel(R) 64]...
+hello.f
+Creating library...
+
+Build log written to  "file://F:/2CcodExap/AaaaaIi/4FireFDS/fireGIT/fds/Build/ulmat_export_cmake/CMakeFiles/IntelVSImplicitPath/FortranLib.dir/Debug/BuildLog.htm"
+FortranLib - 0 error(s), 0 warning(s)
+3>------ 宸插惎鍔ㄧ敓鎴? 椤圭洰: ALL_BUILD, 閰嶇疆: Debug x64 ------
+3>Building Custom Rule C:/Program Files/CMake/share/cmake-4.0/Modules/IntelVSImplicitPath/CMakeLists.txt
+========== 鐢熸垚: 3 鎴愬姛锛? 澶辫触锛? 鏈€鏂帮紝0 宸茶烦杩?==========
+========== 鐢熸垚 浜?17:06 瀹屾垚锛岃€楁椂 05.443 绉?==========
+

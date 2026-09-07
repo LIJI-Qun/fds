@@ -1,0 +1,13 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<Project ToolsVersion="17.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <ItemGroup>
+    <CustomBuild Include="F:\2CcodExap\AaaaaIi\4FireFDS\fireGIT\fds\Build\ulmat_export_cmake\CMakeFiles\5515bc82e827a01c87f9862a6df91b14\INSTALL_force.rule">
+      <Filter>CMake Rules</Filter>
+    </CustomBuild>
+  </ItemGroup>
+  <ItemGroup>
+    <Filter Include="CMake Rules">
+      <UniqueIdentifier>{05D8859C-DC54-39DE-A827-B484C7872A6C}</UniqueIdentifier>
+    </Filter>
+  </ItemGroup>
+</Project>

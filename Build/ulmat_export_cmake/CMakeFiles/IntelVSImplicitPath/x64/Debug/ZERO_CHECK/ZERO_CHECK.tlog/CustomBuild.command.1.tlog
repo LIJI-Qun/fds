@@ -1,0 +1,10 @@
+^F:\2CCODEXAP\AAAAAII\4FIREFDS\FIREGIT\FDS\BUILD\ULMAT_EXPORT_CMAKE\CMAKEFILES\INTELVSIMPLICITPATH\CMAKEFILES\9536D6BBF5028F2821DFED6558D75F53\GENERATE.STAMP.RULE
+setlocal
+"C:\Program Files\CMake\bin\cmake.exe" "-SC:/Program Files/CMake/share/cmake-4.0/Modules/IntelVSImplicitPath" -BF:/2CcodExap/AaaaaIi/4FireFDS/fireGIT/fds/Build/ulmat_export_cmake/CMakeFiles/IntelVSImplicitPath --check-stamp-list CMakeFiles/generate.stamp.list --vs-solution-file F:/2CcodExap/AaaaaIi/4FireFDS/fireGIT/fds/Build/ulmat_export_cmake/CMakeFiles/IntelVSImplicitPath/IntelFortranImplicit.sln
+if %errorlevel% neq 0 goto :cmEnd
+:cmEnd
+endlocal & call :cmErrorLevel %errorlevel% & goto :cmDone
+:cmErrorLevel
+exit /b %1
+:cmDone
+if %errorlevel% neq 0 goto :VCEnd
