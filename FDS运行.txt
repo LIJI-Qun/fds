@@ -1,0 +1,127 @@
+mpiexec -np 1 E:\2CODE\AaaaaIi\4FireFDS\fireGIT\fds\Build\impi_intel_win\fds_impi_intel_win.exe Thot_130_0.fds
+
+mpiexec -np 5 F:\2CcodExap\2EXAMPLEFDS\tett2026NEWULMATfix1ms\fds_impi_intel_win.exe FM_SNL_1ulmat.fds
+
+mpiexec -np 1 fds.exe deardorff_32.fds
+
+
+
+mpiexec -np 1 F:\2CcodExap\AaaaaIi\4FireFDS\2cavityPDE\TTTs\Tpred\train_1Pred\fds_impi_intel_win.exe deardorff_32.fds
+
+.\fds_impi_intel_win.exe -v
+正常显示 FDS 版本mpiexec -np 1 .\fds_impi_intel_win.exe Thot_40_0.fds
+
+
+
+提交现存更改
+# 1. 查看当前修改状态（确认要提交的文件）
+git status
+
+# 2. 将所有修改添加到暂存区
+git add .
+
+# 3. 提交更改（填写你的提交说明）
+git commit -m "输出12组数据(I,J,K,X,Y,Z, Ustar, Vstar,Wstar, D_target, RHS, T, RHO, P_old) P_new,DT"
+git commit -m "输出压力求解时间"
+
+git commit -m "输出12组数据仅仅修改mian"
+
+# 4. 推送到远程 fireT 分支
+git push origin SaveData_Div_Rhs_Pold_Pnew
+git push -u LJQfork SavefireGIT2026OutParameter
+git ls-remote --heads LJQfork
+
+git push origin newCnn
+
+
+确认远程仓库    git remote -v
+本地仓库里配置叫 LJQfork 的远程仓库
+git remote add LJQfork https://github.com/LIJI-Qun/fds.git
+https://github.com/LIJI-Qun/fds
+
+To https://github.com/LIJI-Qun/fds.git
+   073500b1c..4f5a113db  newCnn -> newCnn
+
+(SaveData_Div_Rhs_Pold_Pnew)
+
+切换到历史版本（创建临时分支）
+找到目标 7cf211fd。基于这个节点创建test-old-version 临时分支并切换过去：
+git checkout -b test-old-version 7cf211fd
+
+
+
+拉取代码
+git clone -b SaveData_Div_Rhs_Pold_Pnew https://github.com/LIJI-Qun/fds.git
+
+方法二：已克隆过仓库（更新到最新）
+如果已经克隆了整个仓库，先切换到目标分支，再拉取最新代码：
+git checkout SaveData_Div_Rhs_Pold_Pnew
+git checkout newCnn
+git pull origin newCnn
+方案二：仅对 GitHub 使用代理（其他保持直连）
+如果你的网络环境只需要代理 GitHub，这个方案更灵活。
+git config --global http.https://github.com.proxy http://127.0.0.1:7897
+git config --global https.https://github.com.proxy http://127.0.0.1:<你的代理端口>
+
+
+1. 先确认当前状态
+git status
+2. 丢弃所有本地更改（包括工作区和暂存区）
+执行以下命令，彻底放弃所有未提交的修改：
+git reset --hard HEAD
+3. 切换到目标分支
+
+
+
+# 创建并切换到本地 newCnn 分支，并跟踪远程 newCnn
+git checkout -b newCnn origin/newCnn   # 如果本地没有该分支
+# 或直接切换（如果已存在）
+git checkout newCnn
+在 newCnn 分支上工作了，不会与 fireT 产生合并冲突。
+现在本地已经干净，可以安全切换：
+git checkout SaveData_Div_Rhs_Pold_Pnew
+4. 拉取最新代码
+git pull origin SaveData_Div_Rhs_Pold_Pnew
+
+
+Intel 的 lld-link 在链接 DLL 时，通常需要一个对应的 .lib（导入库）文件作为“引导”。MinGW 的 g++ 可以顺手帮你把这个 .lib 生成出来。
+在 Windows 下使用的是 g++（比如 MinGW-w64），在当前的终端（已经激活了 torch2_env 的 PowerShell）中，运行以下编译命令。
+
+g++ -O3 -Wall -shared -std=c++11 -IF:\ProgramData\miniconda3\envs\torch2_env\Include -IF:\ProgramData\miniconda3\envs\torch2_env\lib\site-packages\pybind11\include 3cnn2CRPedShortTime.cpp -o cnn2CRPed.dll "-Wl,--out-implib,cnn2CRPed.lib" -LF:\ProgramData\miniconda3\envs\torch2_env\libs -lpython310
+
+同时修改FDS中makefile
+
+
+
+ONNX文件
+g++ -O3 -Wall -shared -std=c++17 -I "G:\Program Files\onnxruntime-win-x64-1.27.1\onnxruntime-win-x64-1.27.1\include" Onnx2BridgeRuntimeflo32.cpp -o NnCRPed.dll "-Wl,--out-implib,NnCRPed.lib" -L "G:\Program Files\onnxruntime-win-x64-1.27.1\onnxruntime-win-x64-1.27.1\lib" -lonnxruntime
+
+pth文件导出.pt文件
+icx /O3 /LD /EHsc /std:c++17 ^
+/I "G:\Program Files\libtorch\include" ^
+/I "G:\Program Files\libtorch\include\torch\csrc\api\include" ^
+3cnn2CRPedShortTime.cpp /link /OUT:cnn2CRPed.dll ^
+/LIBPATH:"G:\Program Files\libtorch\lib" ^
+torch.lib torch_cpu.lib torch_cuda.lib c10.lib c10_cuda.lib
+
+CPU运行
+icx 是 Intel C++ 编译器（Intel C++ Compiler），它是 Intel oneAPI 工具包的一部分。普通的 PowerShell 或 CMD 没有配置相关的环境变量
+icx /O3 /LD /EHsc /std:c++17 /I "G:\Program Files\libtorch\include" /I "G:\Program Files\libtorch\include\torch\csrc\api\include" 3cnn2CRPedShortTime.cpp /link /OUT:cnn2CRPed.dll /LIBPATH:"G:\Program Files\libtorch\lib" torch.lib torch_cpu.lib c10.lib
+
+
+
+
+把 E:\Program Files\onnxruntime-win-x64-1.27.1\lib\onnxruntime.dll 丢进 FDS 运行目录（也就是和刚生成的 cnn2CRPed.dll 放在一起）。
+
+
+1是否应该把训练目标调整成 H_old/H_new 输出精度，最好使用二进制或 E24.16 格式
+
+
+cd F:\2CODE\FDS2026New\fds\Build\Scripts\HYPRE
+git clone https://github.com/hypre-space/hypre.git
+
+cd F:\2CODE\FDS2026New\fds\Build\Scripts\SUNDIALS
+git clone https://github.com/LLNL/sundials.git
+
+
+
