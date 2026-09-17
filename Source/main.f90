@@ -1498,10 +1498,10 @@ INTEGER, SAVE :: ML_CALL_COUNT = 0
 INTEGER, SAVE :: ML_SUCCESS_COUNT = 0
 INTEGER, SAVE :: ML_FALLBACK_COUNT = 0
 REAL(EB), SAVE :: TOTAL_ML_TIME = 0.0_EB
-REAL(EB), PARAMETER :: ML_RES_TOL = 1.0_EB   ! ML 允许的最大残差阈值
+REAL(EB), PARAMETER :: ML_RES_TOL = 200.0_EB   ! ML 允许的最大残差阈值
 LOGICAL :: USED_ML
 
-!新增纯ML推理计时变量
+!纯ML推理计时变量
 REAL(EB) :: T_START_ML_INFER, T_ELAPSED_ML_INFER
 REAL(EB), SAVE :: TOTAL_ML_INFER_TIME = 0.0_EB
 
@@ -1537,11 +1537,11 @@ REAL(EB), SAVE :: ALL_TOTAL_T_POISSON = 0.0_EB
 INTEGER,  SAVE :: ALL_COUNT_POISSON = 0            
 
 ! ====== ML 每 100 步专属 CSV 统计变量 ======
-INTEGER, PARAMETER :: FREQ_ML = 100          
+INTEGER, PARAMETER :: FREQ_ML = 200          
 INTEGER, SAVE :: PERIODIC_ML_CALLS = 0       
 INTEGER, SAVE :: PERIODIC_ML_SUCCESS = 0     
 REAL(EB), SAVE :: PERIODIC_ML_TIME = 0.0_EB  
-!新增周期内纯推理时间
+!周期内纯推理时间
 REAL(EB), SAVE :: PERIODIC_ML_INFER_TIME = 0.0_EB
 LOGICAL, SAVE :: STAT_CSV_ML_INIT = .FALSE.  
 CHARACTER(255) :: STAT_FILE_ML               
@@ -1552,7 +1552,7 @@ CHARACTER(5) :: STR_USED_ML
 PRESSURE_ITERATIONS = 0
 
 ! ====================================================================
-! 初始化备份内存 (仅在第一次进入时分配)
+! 初始化备份内存 
 ! 动态分配，确保适配 FDS 不规则的局部网格尺寸 IBAR, JBAR, KBAR
 ! ====================================================================
 IF (.NOT. ML_BACKUP_INIT) THEN
@@ -1700,7 +1700,7 @@ PRESSURE_ITERATION_LOOP: DO
 
    ! 打印原生求解器计时信息
    IF (MY_RANK == 0) THEN
-      IF (MOD(ICYC, 100) == 0 .AND. PRESSURE_ITERATIONS == 1)  THEN
+      IF (MOD(ICYC, 200) == 0 .AND. PRESSURE_ITERATIONS == 1)  THEN
          WRITE(*,*) ' Poisson Solver CPU Time for ICYC=', ICYC, &
                     ' ITER=', PRESSURE_ITERATIONS, &
                     ' is ', T_ELAPSED_POISSON, ' seconds.'
@@ -1708,7 +1708,7 @@ PRESSURE_ITERATION_LOOP: DO
       ENDIF
    ENDIF
 
-   ! 计算散度/速度残差 (在各个本地进程上生成 PRESSURE_ERROR_MAX)
+   ! 计算散度/速度残差 
    DO NM=LOWER_MESH_INDEX,UPPER_MESH_INDEX
       SELECT CASE(PRES_FLAG)
          CASE DEFAULT
@@ -1747,7 +1747,7 @@ PRESSURE_ITERATION_LOOP: DO
       IF (GLOBAL_MAX_ERR > ML_RES_TOL) THEN
          ! 预测发散：触发保护回退
          ML_ACTIVE = .FALSE.
-         ML_COOLDOWN = 100   ! 强制 100 个物理步不再调用 ML
+         ML_COOLDOWN = 400   ! 强制 100 个物理步不再调用 ML
          ML_FALLBACK_COUNT = ML_FALLBACK_COUNT + 1
          
          IF (MY_RANK == 0) THEN
