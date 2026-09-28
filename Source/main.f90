@@ -1469,576 +1469,540 @@ END SUBROUTINE MPI_INITIALIZATION_CHORES
 
 SUBROUTINE PRESSURE_ITERATION_SCHEME
 
-USE CC_SCALARS, ONLY : GET_LINKED_FV
-! 引入在 pres.f90 中新建的 ML 求解器
-USE PRES, ONLY : PRESSURE_SOLVER_NNet
+   USE CC_SCALARS, ONLY : GET_LINKED_FV
+   USE PRES, ONLY : PRESSURE_SOLVER_NNet_GLOBAL, ML_ACTIVE, ML_INIT_FAILED
+   USE ISO_C_BINDING
+   USE MPI_F08
 
-INTEGER :: NM_MAX_V, NM_MAX_P
-REAL(EB) :: TNOW, VELOCITY_ERROR_MAX_OLD, PRESSURE_ERROR_MAX_OLD
+   IMPLICIT NONE
 
-! 为单次调用泊松求解器计时变量声明类型 
-REAL(EB) :: T_START_POISSON, T_ELAPSED_POISSON
-REAL(EB) :: TOTAL_T_POISSON, AVERAGE_T_POISSON
-INTEGER  :: COUNT_POISSON
-REAL(EB) :: AVG_STEP_TOTAL, AVG_STEP_CORR, AVG_STAGE_TOTAL, AVG_STAGE_CORR
+   INTERFACE
+      SUBROUTINE FreeONNX() BIND(C, NAME='FreeONNX')
+      END SUBROUTINE FreeONNX
+   END INTERFACE
 
-! ======  ML 状态备份结构体 ======
-TYPE ML_STATE_BACKUP
-   REAL(EB), ALLOCATABLE, DIMENSION(:,:,:) :: H
-   REAL(EB), ALLOCATABLE, DIMENSION(:,:,:) :: HS
-END TYPE ML_STATE_BACKUP
-TYPE(ML_STATE_BACKUP), ALLOCATABLE, DIMENSION(:), SAVE :: ML_BACKUP
-LOGICAL, SAVE :: ML_BACKUP_INIT = .FALSE.
-REAL(EB) :: LOCAL_MAX_ERR, GLOBAL_MAX_ERR
+   INTEGER :: NM_MAX_V, NM_MAX_P
+   REAL(EB) :: TNOW, VELOCITY_ERROR_MAX_OLD, PRESSURE_ERROR_MAX_OLD
 
-! ====== 机器学习控制与统计变量 ======
-LOGICAL, SAVE :: ML_ACTIVE = .TRUE.
-INTEGER, SAVE :: ML_COOLDOWN = 0
-INTEGER, SAVE :: ML_CALL_COUNT = 0
-INTEGER, SAVE :: ML_SUCCESS_COUNT = 0
-INTEGER, SAVE :: ML_FALLBACK_COUNT = 0
-REAL(EB), SAVE :: TOTAL_ML_TIME = 0.0_EB
-REAL(EB), PARAMETER :: ML_RES_TOL = 200.0_EB   ! ML 允许的最大残差阈值
-LOGICAL :: USED_ML
+   REAL(EB) :: T_START_POISSON, T_ELAPSED_POISSON
+   REAL(EB) :: TOTAL_T_POISSON, AVERAGE_T_POISSON
+   INTEGER  :: COUNT_POISSON
+   REAL(EB) :: AVG_STEP_TOTAL, AVG_STEP_CORR, AVG_STAGE_TOTAL, AVG_STAGE_CORR
 
-!纯ML推理计时变量
-REAL(EB) :: T_START_ML_INFER, T_ELAPSED_ML_INFER
-REAL(EB), SAVE :: TOTAL_ML_INFER_TIME = 0.0_EB
+   TYPE ML_STATE_BACKUP
+      REAL(EB), ALLOCATABLE, DIMENSION(:,:,:) :: H
+      REAL(EB), ALLOCATABLE, DIMENSION(:,:,:) :: HS
+   END TYPE ML_STATE_BACKUP
+   TYPE(ML_STATE_BACKUP), ALLOCATABLE, DIMENSION(:), SAVE :: ML_BACKUP
+   LOGICAL, SAVE :: ML_BACKUP_INIT = .FALSE.
+   REAL(EB) :: LOCAL_MAX_ERR, GLOBAL_MAX_ERR
+   LOGICAL  :: LOCAL_FAILED, GLOBAL_FAILED
 
-! 用于记录当前时间步是否成功采用了 ML 的标志
-LOGICAL, SAVE :: STEP_ML_SUCCESS = .FALSE.
+   INTEGER, SAVE :: ML_COOLDOWN = 0
+   INTEGER, SAVE :: ML_CALL_COUNT = 0
+   INTEGER, SAVE :: ML_SUCCESS_COUNT = 0
+   INTEGER, SAVE :: ML_FALLBACK_COUNT = 0
+   REAL(EB), SAVE :: TOTAL_ML_TIME = 0.0_EB
+   REAL(EB), PARAMETER :: ML_RES_TOL = 2000.0_EB
+   LOGICAL :: USED_ML
 
-! ====== CSV 统计输出频率控制 ======
-INTEGER, PARAMETER :: FREQ_STEP  = 1000    
-INTEGER, PARAMETER :: FREQ_STAGE = 2000    
+   REAL(EB) :: T_ELAPSED_ML_INFER ! 只用于接收 C++ 纯推理时间
+   REAL(EB), SAVE :: TOTAL_ML_INFER_TIME = 0.0_EB
+   LOGICAL, SAVE :: STEP_ML_SUCCESS = .FALSE.
 
-! ====== CSV 统计文件专属变量 ======
-INTEGER :: STAT_UNIT_STEP, STAT_UNIT_STAGE
-LOGICAL, SAVE :: STAT_CSV_STEP_INIT = .FALSE. 
-LOGICAL, SAVE :: STAT_CSV_STAGE_INIT = .FALSE. 
-CHARACTER(255) :: STAT_FILE_STEP, STAT_FILE_STAGE
-CHARACTER(20)  :: SOLVER_NAME  
-INTEGER :: IERR
+   INTEGER, PARAMETER :: FREQ_STEP  = 1000    
+   INTEGER, PARAMETER :: FREQ_STAGE = 2000    
 
-! ====== 步级与阶段级统计累加变量 ======
-REAL(EB), SAVE :: STEP_TOTAL_T_POISSON = 0.0_EB    
-INTEGER,  SAVE :: STEP_COUNT_POISSON = 0           
-REAL(EB), SAVE :: STEP_CORR_T_POISSON = 0.0_EB     
-INTEGER,  SAVE :: STEP_CORR_COUNT_POISSON = 0      
+   INTEGER :: STAT_UNIT_STEP, STAT_UNIT_STAGE
+   LOGICAL, SAVE :: STAT_CSV_STEP_INIT  = .FALSE. 
+   LOGICAL, SAVE :: STAT_CSV_STAGE_INIT = .FALSE. 
+   CHARACTER(255) :: STAT_FILE_STEP, STAT_FILE_STAGE
+   CHARACTER(20)  :: SOLVER_NAME  
+   INTEGER :: IERR
 
-REAL(EB), SAVE :: STAGE_TOTAL_T_POISSON = 0.0_EB   
-INTEGER,  SAVE :: STAGE_COUNT_POISSON = 0          
-REAL(EB), SAVE :: STAGE_CORR_T_POISSON = 0.0_EB    
-INTEGER,  SAVE :: STAGE_CORR_COUNT_POISSON = 0     
+   REAL(EB), SAVE :: STEP_TOTAL_T_POISSON = 0.0_EB    
+   INTEGER,  SAVE :: STEP_COUNT_POISSON = 0           
+   REAL(EB), SAVE :: STEP_CORR_T_POISSON = 0.0_EB     
+   INTEGER,  SAVE :: STEP_CORR_COUNT_POISSON = 0       
 
-REAL(EB), SAVE :: GLOBAL_TOTAL_T_POISSON = 0.0_EB  
-INTEGER,  SAVE :: GLOBAL_COUNT_POISSON = 0         
-REAL(EB), SAVE :: ALL_TOTAL_T_POISSON = 0.0_EB     
-INTEGER,  SAVE :: ALL_COUNT_POISSON = 0            
+   REAL(EB), SAVE :: STAGE_TOTAL_T_POISSON = 0.0_EB   
+   INTEGER,  SAVE :: STAGE_COUNT_POISSON = 0          
+   REAL(EB), SAVE :: STAGE_CORR_T_POISSON = 0.0_EB    
+   INTEGER,  SAVE :: STAGE_CORR_COUNT_POISSON = 0     
 
-! ====== ML 每 100 步专属 CSV 统计变量 ======
-INTEGER, PARAMETER :: FREQ_ML = 200          
-INTEGER, SAVE :: PERIODIC_ML_CALLS = 0       
-INTEGER, SAVE :: PERIODIC_ML_SUCCESS = 0     
-REAL(EB), SAVE :: PERIODIC_ML_TIME = 0.0_EB  
-!周期内纯推理时间
-REAL(EB), SAVE :: PERIODIC_ML_INFER_TIME = 0.0_EB
-LOGICAL, SAVE :: STAT_CSV_ML_INIT = .FALSE.  
-CHARACTER(255) :: STAT_FILE_ML               
-INTEGER :: STAT_UNIT_ML                      
-REAL(EB) :: AVG_ML_TIME, AVG_ML_INFER_TIME   
-CHARACTER(5) :: STR_USED_ML                  
+   REAL(EB), SAVE :: GLOBAL_TOTAL_T_POISSON = 0.0_EB  
+   INTEGER,  SAVE :: GLOBAL_COUNT_POISSON = 0         
+   REAL(EB), SAVE :: ALL_TOTAL_T_POISSON = 0.0_EB     
+   INTEGER,  SAVE :: ALL_COUNT_POISSON = 0            
 
-PRESSURE_ITERATIONS = 0
+   INTEGER, PARAMETER :: FREQ_ML = 200           
+   INTEGER, SAVE :: PERIODIC_ML_CALLS = 0        
+   INTEGER, SAVE :: PERIODIC_ML_SUCCESS = 0      
+   REAL(EB), SAVE :: PERIODIC_ML_TIME = 0.0_EB   
+   REAL(EB), SAVE :: PERIODIC_ML_INFER_TIME = 0.0_EB
 
-! ====================================================================
-! 初始化备份内存 
-! 动态分配，确保适配 FDS 不规则的局部网格尺寸 IBAR, JBAR, KBAR
-! ====================================================================
-IF (.NOT. ML_BACKUP_INIT) THEN
-   ALLOCATE(ML_BACKUP(NMESHES))
-   DO NM = 1, NMESHES
-      ALLOCATE(ML_BACKUP(NM)%H (0:MESHES(NM)%IBAR+1, 0:MESHES(NM)%JBAR+1, 0:MESHES(NM)%KBAR+1))
-      ALLOCATE(ML_BACKUP(NM)%HS(0:MESHES(NM)%IBAR+1, 0:MESHES(NM)%JBAR+1, 0:MESHES(NM)%KBAR+1))
-   ENDDO
-   ML_BACKUP_INIT = .TRUE.
-ENDIF
+   INTEGER, SAVE :: PERIODIC_NATIVE_CALLS = 0
+   REAL(EB), SAVE :: PERIODIC_NATIVE_TIME = 0.0_EB
+   REAL(EB) :: AVG_NATIVE_TIME
+   LOGICAL, SAVE :: STAT_CSV_ML_INIT = .FALSE.   
+   CHARACTER(255) :: STAT_FILE_ML                
+   INTEGER :: STAT_UNIT_ML                       
+   REAL(EB) :: AVG_ML_TIME, AVG_ML_INFER_TIME    
+   CHARACTER(5) :: STR_USED_ML                   
 
-! === 在预测步开始时，清空当前时间步的累加器和标志位 ===
-IF (PREDICTOR) THEN
-   STEP_TOTAL_T_POISSON = 0.0_EB
-   STEP_COUNT_POISSON = 0
-   STEP_CORR_T_POISSON = 0.0_EB
-   STEP_CORR_COUNT_POISSON = 0
-   STEP_ML_SUCCESS = .FALSE.  
+   PRESSURE_ITERATIONS = 0
 
-   ! 确保每个物理步 (ICYC) 只扣减一次，而不是在迭代循环里疯狂扣减
-   IF (.NOT. ML_ACTIVE) THEN
-      ML_COOLDOWN = ML_COOLDOWN - 1
-      IF (ML_COOLDOWN <= 0) THEN
-         ML_ACTIVE = .TRUE.
-         IF (MY_RANK == 0) THEN
-            WRITE(*,*) '>>> [Safe-Net] Cooldown finished. ML Solver Reactivated.'
+   IF (.NOT. ML_BACKUP_INIT) THEN
+      ALLOCATE(ML_BACKUP(NMESHES))
+      DO NM = LOWER_MESH_INDEX, UPPER_MESH_INDEX
+         ALLOCATE(ML_BACKUP(NM)%H (0:MESHES(NM)%IBAR+1, 0:MESHES(NM)%JBAR+1, 0:MESHES(NM)%KBAR+1))
+         ALLOCATE(ML_BACKUP(NM)%HS(0:MESHES(NM)%IBAR+1, 0:MESHES(NM)%JBAR+1, 0:MESHES(NM)%KBAR+1))
+      ENDDO
+      ML_BACKUP_INIT = .TRUE.
+   ENDIF
+
+   IF (PREDICTOR) THEN
+      STEP_TOTAL_T_POISSON    = 0.0_EB
+      STEP_COUNT_POISSON      = 0
+      STEP_CORR_T_POISSON     = 0.0_EB
+      STEP_CORR_COUNT_POISSON = 0
+      STEP_ML_SUCCESS         = .FALSE.  
+
+      IF (.NOT. ML_ACTIVE) THEN
+         ML_COOLDOWN = ML_COOLDOWN - 1
+         IF (ML_COOLDOWN <= 0) THEN
+            ML_ACTIVE = .TRUE.
+            IF (MY_RANK == 0) THEN
+               WRITE(*,*) '>>> [Safe-Net] Cooldown finished. ML Solver Reactivated.'
+            ENDIF
          ENDIF
       ENDIF
    ENDIF
-ENDIF
 
-IF (BAROCLINIC) THEN
-   ITERATE_BAROCLINIC_TERM = .TRUE.
-ELSE
-   ITERATE_BAROCLINIC_TERM = .FALSE.
-ENDIF
-
-IF(CC_IBM) THEN
-   CALL MESH_EXCHANGE(5)
-   DO NM=LOWER_MESH_INDEX,UPPER_MESH_INDEX
-      CALL GET_LINKED_FV(NM,DO_BAROCLINIC=.FALSE.)
-   ENDDO
-ENDIF
-
-TOTAL_T_POISSON = 0.0_EB
-COUNT_POISSON = 0
-
-PRESSURE_ITERATION_LOOP: DO
-
-   PRESSURE_ITERATIONS = PRESSURE_ITERATIONS + 1
-   TOTAL_PRESSURE_ITERATIONS = TOTAL_PRESSURE_ITERATIONS + 1
-
-   IF (ITERATE_BAROCLINIC_TERM .OR. PRESSURE_ITERATIONS==1) THEN
-      DO NM=LOWER_MESH_INDEX,UPPER_MESH_INDEX
-         IF (BAROCLINIC) CALL BAROCLINIC_CORRECTION(T,NM)
-         IF (CC_IBM) CALL CC_NO_FLUX(DT,NM,.TRUE.)
-      ENDDO
-      CALL MESH_EXCHANGE(5)
-      DO NM=LOWER_MESH_INDEX,UPPER_MESH_INDEX
-         CALL MATCH_VELOCITY_FLUX(NM)
-      ENDDO
-   ENDIF
-
-   DO NM=LOWER_MESH_INDEX,UPPER_MESH_INDEX
-      CALL NO_FLUX(DT,NM)
-      IF (CC_IBM) CALL CC_NO_FLUX(DT,NM,.FALSE.)
-      IF (PRESSURE_ITERATIONS==1) MESHES(NM)%WALL_WORK1 = 0._EB
-      CALL PRESSURE_SOLVER_COMPUTE_RHS(T,DT,NM)
-   ENDDO
-
-   USED_ML = .FALSE.
-   ! ====================================================================
-   ! 1. 机器学习加速分支 
-   ! ====================================================================
-   IF (PRES_FLAG /= FFT_FLAG .AND. CORRECTOR .AND. PRESSURE_ITERATIONS == 1 .AND. ML_ACTIVE) THEN
-      
-      !开启总耗时计时 (含推理 + MPI通信开销)
-      T_START_POISSON = CURRENT_TIME()
-      
-      ! 在调用 ML 前，完整保存历史压力场，以防网络预测爆炸
-      DO NM=LOWER_MESH_INDEX,UPPER_MESH_INDEX
-         ML_BACKUP(NM)%H  = MESHES(NM)%H
-         ML_BACKUP(NM)%HS = MESHES(NM)%HS
-      ENDDO
-      
-      ! 开始纯ML推理计时
-      T_START_ML_INFER = CURRENT_TIME()
-      
-      DO NM=LOWER_MESH_INDEX,UPPER_MESH_INDEX
-         CALL PRESSURE_SOLVER_NNet(NM)
-      ENDDO
-      
-      ! 结束纯ML推理计时
-      T_ELAPSED_ML_INFER = CURRENT_TIME() - T_START_ML_INFER
-      
-      ! MPI 边界交换 (此时耗时被计入总 POISSON，但不计入纯 INFER)
-      CALL MESH_EXCHANGE(5)
-      
-      ! 结束总耗时计时
-      T_ELAPSED_POISSON = CURRENT_TIME() - T_START_POISSON
-      
-      USED_ML = .TRUE.
-      ML_CALL_COUNT = ML_CALL_COUNT + 1
-
-   ! ====================================================================
-   ! 2. 原生求解器分支 
-   ! ====================================================================
+   IF (BAROCLINIC) THEN
+      ITERATE_BAROCLINIC_TERM = .TRUE.
    ELSE
-      T_START_POISSON = CURRENT_TIME()
-      
-      SELECT CASE(PRES_FLAG)
-         CASE (FFT_FLAG)
-            IF (TUNNEL_PRECONDITIONER) CALL TUNNEL_POISSON_SOLVER
-            DO NM=LOWER_MESH_INDEX,UPPER_MESH_INDEX
-               CALL PRESSURE_SOLVER_FFT(NM)
-            ENDDO
-            
-         CASE (GLMAT_FLAG,UGLMAT_FLAG)
-            CALL GLMAT_SOLVER(T,DT)
-            CALL MESH_EXCHANGE(5)
-            CALL COPY_H_OMESH_TO_MESH
-            
-         CASE (ULMAT_FLAG)
-            IF (TUNNEL_PRECONDITIONER) CALL TUNNEL_POISSON_SOLVER
-            DO NM=LOWER_MESH_INDEX,UPPER_MESH_INDEX
-               CALL ULMAT_SOLVER(NM,T,DT)
-            ENDDO
-      END SELECT
-      
-      T_ELAPSED_POISSON = CURRENT_TIME() - T_START_POISSON
-   ENDIF
-   ! ====================================================================
-
-   TOTAL_T_POISSON = TOTAL_T_POISSON + T_ELAPSED_POISSON
-   COUNT_POISSON = COUNT_POISSON + 1
-
-   ! 累加 ML 全局与周期时间
-   IF (USED_ML) THEN
-      TOTAL_ML_TIME = TOTAL_ML_TIME + T_ELAPSED_POISSON
-      TOTAL_ML_INFER_TIME = TOTAL_ML_INFER_TIME + T_ELAPSED_ML_INFER
-      PERIODIC_ML_TIME = PERIODIC_ML_TIME + T_ELAPSED_POISSON
-      PERIODIC_ML_INFER_TIME = PERIODIC_ML_INFER_TIME + T_ELAPSED_ML_INFER 
-      PERIODIC_ML_CALLS = PERIODIC_ML_CALLS + 1
+      ITERATE_BAROCLINIC_TERM = .FALSE.
    ENDIF
 
-   ! 打印原生求解器计时信息
-   IF (MY_RANK == 0) THEN
-      IF (MOD(ICYC, 200) == 0 .AND. PRESSURE_ITERATIONS == 1)  THEN
-         WRITE(*,*) ' Poisson Solver CPU Time for ICYC=', ICYC, &
-                    ' ITER=', PRESSURE_ITERATIONS, &
-                    ' is ', T_ELAPSED_POISSON, ' seconds.'
-         FLUSH(6) 
-      ENDIF
+   IF (CC_IBM) THEN
+      CALL MESH_EXCHANGE(5)
+      DO NM = LOWER_MESH_INDEX, UPPER_MESH_INDEX
+         CALL GET_LINKED_FV(NM, DO_BAROCLINIC=.FALSE.)
+      ENDDO
    ENDIF
 
-   ! 计算散度/速度残差 
-   DO NM=LOWER_MESH_INDEX,UPPER_MESH_INDEX
-      SELECT CASE(PRES_FLAG)
-         CASE DEFAULT
-            CALL PRESSURE_SOLVER_CHECK_RESIDUALS(NM)
-         CASE (UGLMAT_FLAG,ULMAT_FLAG)
-            CALL PRESSURE_SOLVER_CHECK_RESIDUALS_U(NM)
-      END SELECT
-   ENDDO
+   TOTAL_T_POISSON = 0.0_EB
+   COUNT_POISSON   = 0
 
-   ! ====================================================================
-   ! 3. 机器学习的 Safe-Net 验证与自动回退机制
-   ! ====================================================================
-   IF (USED_ML) THEN
-      ! 收集本地最大残差，准备全局同步
-      IF (UPPER_MESH_INDEX >= LOWER_MESH_INDEX) THEN
-         LOCAL_MAX_ERR = MAXVAL(PRESSURE_ERROR_MAX(LOWER_MESH_INDEX:UPPER_MESH_INDEX))
-      ELSE
-         LOCAL_MAX_ERR = 0.0_EB  ! 防护空分配节点的非法获取
-      ENDIF
-      
-      ! MPI 全局规约同步最大残差，确保所有进程决策完全一致，杜绝死锁！
-      IF (N_MPI_PROCESSES > 1) THEN
-         CALL MPI_ALLREDUCE(LOCAL_MAX_ERR, GLOBAL_MAX_ERR, 1, MPI_DOUBLE_PRECISION, MPI_MAX, MPI_COMM_WORLD, IERR)
-      ELSE
-         GLOBAL_MAX_ERR = LOCAL_MAX_ERR
-      ENDIF
-      
-      ! =======================================================
-      ! 打印残差真实量级 (在判定回退前)
-      IF (MY_RANK == 0) THEN
-         WRITE(*,'(A,ES15.7)') ' >>> [ML-Diag] GLOBAL_MAX_ERR = ', GLOBAL_MAX_ERR
-         WRITE(*,'(A,ES15.7)') ' >>> [ML-Diag] LOCAL_MAX_ERR  = ', LOCAL_MAX_ERR
-      ENDIF
-      
-      ! 基于全局最大残差进行判定
-      IF (GLOBAL_MAX_ERR > ML_RES_TOL) THEN
-         ! 预测发散：触发保护回退
-         ML_ACTIVE = .FALSE.
-         ML_COOLDOWN = 400   ! 强制 100 个物理步不再调用 ML
-         ML_FALLBACK_COUNT = ML_FALLBACK_COUNT + 1
-         
-         IF (MY_RANK == 0) THEN
-             WRITE(*,*) '>>> [Safe-Net] Global ML residual exceeded tolerance (', GLOBAL_MAX_ERR, ')! Fallback to Native Solver.'
-         ENDIF
-         
-         ! 撤销当前步 ML 的污染，完全使用备份场恢复 H 和 HS
+   PRESSURE_ITERATION_LOOP: DO
+
+      PRESSURE_ITERATIONS       = PRESSURE_ITERATIONS + 1
+      TOTAL_PRESSURE_ITERATIONS = TOTAL_PRESSURE_ITERATIONS + 1
+
+      IF (ITERATE_BAROCLINIC_TERM .OR. PRESSURE_ITERATIONS == 1) THEN
          DO NM = LOWER_MESH_INDEX, UPPER_MESH_INDEX
-            MESHES(NM)%H  = ML_BACKUP(NM)%H
-            MESHES(NM)%HS = ML_BACKUP(NM)%HS
+            IF (BAROCLINIC) CALL BAROCLINIC_CORRECTION(T, NM)
+            IF (CC_IBM)     CALL CC_NO_FLUX(DT, NM, .TRUE.)
+         ENDDO
+         CALL MESH_EXCHANGE(5)
+         DO NM = LOWER_MESH_INDEX, UPPER_MESH_INDEX
+            CALL MATCH_VELOCITY_FLUX(NM)
+         ENDDO
+      ENDIF
+
+      DO NM = LOWER_MESH_INDEX, UPPER_MESH_INDEX
+         CALL NO_FLUX(DT, NM)
+         IF (CC_IBM) CALL CC_NO_FLUX(DT, NM, .FALSE.)
+         IF (PRESSURE_ITERATIONS == 1) MESHES(NM)%WALL_WORK1 = 0.0_EB
+         CALL PRESSURE_SOLVER_COMPUTE_RHS(T, DT, NM)
+      ENDDO
+
+      USED_ML = .FALSE.
+
+   ! ====================================================================
+      ! 1. 机器学习加速分支 
+   ! ==================================================================== 
+      IF (PRES_FLAG /= FFT_FLAG .AND. CORRECTOR .AND. PRESSURE_ITERATIONS == 1 &
+          .AND. ML_ACTIVE .AND. .NOT. ML_INIT_FAILED .AND. T > 0.1_EB) THEN  
+         
+         ! [优化1]：3D数组备份完全移出测速区
+         DO NM = LOWER_MESH_INDEX, UPPER_MESH_INDEX
+            ML_BACKUP(NM)%H  = MESHES(NM)%H
+            ML_BACKUP(NM)%HS = MESHES(NM)%HS
          ENDDO
          
-         ! 将迭代次数减一，使重新计算时能够满足传统的 ITERATION==1 条件
-         PRESSURE_ITERATIONS = PRESSURE_ITERATIONS - 1
-         TOTAL_PRESSURE_ITERATIONS = TOTAL_PRESSURE_ITERATIONS - 1
+         T_START_POISSON = CURRENT_TIME()
+         CALL PRESSURE_SOLVER_NNet_GLOBAL(T_ELAPSED_ML_INFER)
+         CALL MESH_EXCHANGE(5)
+         T_ELAPSED_POISSON = CURRENT_TIME() - T_START_POISSON
          
-         ! 立即重新进行本步，此时 USED_ML 为 False，将自动走 ELSE 里的原生求解器分支
-         CYCLE PRESSURE_ITERATION_LOOP 
+         USED_ML = .TRUE.
+         
+         ! 无论成功与否，只要尝试了，就立刻将尝试次数和时间记录下来
+         ML_CALL_COUNT          = ML_CALL_COUNT + 1
+         PERIODIC_ML_CALLS      = PERIODIC_ML_CALLS + 1
+         TOTAL_ML_TIME          = TOTAL_ML_TIME + T_ELAPSED_POISSON
+         TOTAL_ML_INFER_TIME    = TOTAL_ML_INFER_TIME + T_ELAPSED_ML_INFER
+         PERIODIC_ML_TIME       = PERIODIC_ML_TIME + T_ELAPSED_POISSON
+         PERIODIC_ML_INFER_TIME = PERIODIC_ML_INFER_TIME + T_ELAPSED_ML_INFER 
+
+         TOTAL_T_POISSON = TOTAL_T_POISSON + T_ELAPSED_POISSON
+         COUNT_POISSON   = COUNT_POISSON + 1
+
+   ! ====================================================================
+      ! 2. 原生求解器分支 
+   ! ====================================================================
       ELSE
-         ! 预测收敛成功（全局所有网格皆未发散）
-         ML_SUCCESS_COUNT = ML_SUCCESS_COUNT + 1
-         STEP_ML_SUCCESS = .TRUE.  
-         PERIODIC_ML_SUCCESS = PERIODIC_ML_SUCCESS + 1
+         T_START_POISSON = CURRENT_TIME()
+         SELECT CASE(PRES_FLAG)
+            CASE (FFT_FLAG)
+               IF (TUNNEL_PRECONDITIONER) CALL TUNNEL_POISSON_SOLVER
+               DO NM = LOWER_MESH_INDEX, UPPER_MESH_INDEX
+                  CALL PRESSURE_SOLVER_FFT(NM)
+               ENDDO
+               
+            CASE (GLMAT_FLAG, UGLMAT_FLAG)
+               CALL GLMAT_SOLVER(T, DT)
+               CALL MESH_EXCHANGE(5)
+               CALL COPY_H_OMESH_TO_MESH
+               
+            CASE (ULMAT_FLAG)
+               IF (TUNNEL_PRECONDITIONER) CALL TUNNEL_POISSON_SOLVER
+               DO NM = LOWER_MESH_INDEX, UPPER_MESH_INDEX
+                  CALL ULMAT_SOLVER(NM, T, DT)
+               ENDDO
+         END SELECT
+         T_ELAPSED_POISSON = CURRENT_TIME() - T_START_POISSON
+
+         ! 原生求解器的耗时累加
+         PERIODIC_NATIVE_TIME  = PERIODIC_NATIVE_TIME + T_ELAPSED_POISSON
+         PERIODIC_NATIVE_CALLS = PERIODIC_NATIVE_CALLS + 1
+         TOTAL_T_POISSON = TOTAL_T_POISSON + T_ELAPSED_POISSON
+         COUNT_POISSON   = COUNT_POISSON + 1
+      ENDIF
+
+      DO NM = LOWER_MESH_INDEX, UPPER_MESH_INDEX
+         SELECT CASE(PRES_FLAG)
+            CASE DEFAULT
+               CALL PRESSURE_SOLVER_CHECK_RESIDUALS(NM)
+            CASE (UGLMAT_FLAG, ULMAT_FLAG)
+               CALL PRESSURE_SOLVER_CHECK_RESIDUALS_U(NM)
+         END SELECT
+      ENDDO
+
+   ! ====================================================================
+      ! 3. Safe-Net 验证与容错 
+   ! ====================================================================
+      IF (USED_ML) THEN
+         IF (UPPER_MESH_INDEX >= LOWER_MESH_INDEX) THEN
+            LOCAL_MAX_ERR = MAXVAL(PRESSURE_ERROR_MAX(LOWER_MESH_INDEX:UPPER_MESH_INDEX))
+         ELSE
+            LOCAL_MAX_ERR = 0.0_EB
+         ENDIF
          
-         ! 满足残差要求，直接跳出本时间步的压力迭代！
+         LOCAL_FAILED = ML_INIT_FAILED .OR. ISNAN(LOCAL_MAX_ERR) .OR. (LOCAL_MAX_ERR > ML_RES_TOL)
+
+         IF (N_MPI_PROCESSES > 1) THEN
+            CALL MPI_ALLREDUCE(LOCAL_FAILED, GLOBAL_FAILED, 1, MPI_LOGICAL, MPI_LOR, MPI_COMM_WORLD, IERR)
+            CALL MPI_ALLREDUCE(LOCAL_MAX_ERR, GLOBAL_MAX_ERR, 1, MPI_DOUBLE_PRECISION, MPI_MAX, MPI_COMM_WORLD, IERR)
+         ELSE
+            GLOBAL_FAILED  = LOCAL_FAILED
+            GLOBAL_MAX_ERR = LOCAL_MAX_ERR
+         ENDIF
+         
+         IF (MY_RANK == 0) THEN
+            WRITE(*,'(A,ES15.7,A,L1)') ' >>> [ML-Diag] GLOBAL_MAX_ERR = ', GLOBAL_MAX_ERR, ' | FAILED = ', GLOBAL_FAILED
+         ENDIF
+
+         IF (GLOBAL_FAILED) THEN
+            ML_ACTIVE         = .FALSE.
+            ML_COOLDOWN       = 400
+            ML_FALLBACK_COUNT = ML_FALLBACK_COUNT + 1
+
+            IF (MY_RANK == 0) THEN
+               WRITE(*,*) '>>> [Safe-Net] ML Exceeded tolerance or produced NaN! Rolling back to Native Solver.'
+            ENDIF
+
+            DO NM = LOWER_MESH_INDEX, UPPER_MESH_INDEX
+               MESHES(NM)%H  = ML_BACKUP(NM)%H
+               MESHES(NM)%HS = ML_BACKUP(NM)%HS
+            ENDDO
+
+            ! 回滚迭代计数使得接下来的原生分支执行第一次压力迭代的逻辑
+            PRESSURE_ITERATIONS       = PRESSURE_ITERATIONS - 1
+            TOTAL_PRESSURE_ITERATIONS = TOTAL_PRESSURE_ITERATIONS - 1
+
+            CYCLE PRESSURE_ITERATION_LOOP     
+         
+         ELSE
+            ! 仅增加成功次数即可，耗时已在上方无条件累加了
+            ML_SUCCESS_COUNT    = ML_SUCCESS_COUNT + 1
+            STEP_ML_SUCCESS     = .TRUE.
+            PERIODIC_ML_SUCCESS = PERIODIC_ML_SUCCESS + 1
+
+            EXIT PRESSURE_ITERATION_LOOP
+         ENDIF
+      ENDIF
+
+      IF (.NOT. ITERATE_PRESSURE) EXIT PRESSURE_ITERATION_LOOP
+      CALL MESH_EXCHANGE(5)
+
+      DO NM = LOWER_MESH_INDEX, UPPER_MESH_INDEX
+         CALL COMPUTE_VELOCITY_ERROR(DT, NM)
+         IF (CC_IBM) CALL CC_COMPUTE_VELOCITY_ERROR(DT, NM)
+      ENDDO
+
+      IF (N_MPI_PROCESSES > 1) THEN
+         TNOW = CURRENT_TIME()
+         REAL_BUFFER_10(  1,LOWER_MESH_INDEX:UPPER_MESH_INDEX) = VELOCITY_ERROR_MAX(LOWER_MESH_INDEX:UPPER_MESH_INDEX)
+         REAL_BUFFER_10(  2,LOWER_MESH_INDEX:UPPER_MESH_INDEX) = PRESSURE_ERROR_MAX(LOWER_MESH_INDEX:UPPER_MESH_INDEX)
+         REAL_BUFFER_10(3:5,LOWER_MESH_INDEX:UPPER_MESH_INDEX) = VELOCITY_ERROR_MAX_LOC(1:3,LOWER_MESH_INDEX:UPPER_MESH_INDEX)
+         REAL_BUFFER_10(6:8,LOWER_MESH_INDEX:UPPER_MESH_INDEX) = PRESSURE_ERROR_MAX_LOC(1:3,LOWER_MESH_INDEX:UPPER_MESH_INDEX)
+         CALL MPI_ALLGATHERV(MPI_IN_PLACE, 0, MPI_DATATYPE_NULL, REAL_BUFFER_10(1:10,1:NMESHES), &
+                             COUNTS_10, DISPLS_10, MPI_DOUBLE_PRECISION, MPI_COMM_WORLD, IERR)
+         VELOCITY_ERROR_MAX(:)         =     REAL_BUFFER_10(1,:)
+         PRESSURE_ERROR_MAX(:)         =     REAL_BUFFER_10(2,:)
+         VELOCITY_ERROR_MAX_LOC(1:3,:) = INT(REAL_BUFFER_10(3:5,:))
+         PRESSURE_ERROR_MAX_LOC(1:3,:) = INT(REAL_BUFFER_10(6:8,:))
+         T_USED(11) = T_USED(11) + CURRENT_TIME() - TNOW
+      ENDIF
+
+      IF (MY_RANK == 0 .AND. VELOCITY_ERROR_FILE) THEN
+         NM_MAX_V = MAXLOC(VELOCITY_ERROR_MAX, DIM=1)
+         NM_MAX_P = MAXLOC(PRESSURE_ERROR_MAX, DIM=1)
+         WRITE(LU_VELOCITY_ERROR,'(E16.8,A,7(I7,A),E16.8,A,4(I7,A),E16.8)') T, ',', ICYC, ',', PRESSURE_ITERATIONS, ',', &
+               TOTAL_PRESSURE_ITERATIONS, ',', &
+               NM_MAX_V, ',', VELOCITY_ERROR_MAX_LOC(1,NM_MAX_V), ',', VELOCITY_ERROR_MAX_LOC(2,NM_MAX_V), ',', &
+               VELOCITY_ERROR_MAX_LOC(3,NM_MAX_V), ',', MAXVAL(VELOCITY_ERROR_MAX), ',', &
+               NM_MAX_P, ',', PRESSURE_ERROR_MAX_LOC(1,NM_MAX_P), ',', PRESSURE_ERROR_MAX_LOC(2,NM_MAX_P), ',', &
+               PRESSURE_ERROR_MAX_LOC(3,NM_MAX_P), ',', MAXVAL(PRESSURE_ERROR_MAX)
+      ENDIF
+
+      IF (MAXVAL(PRESSURE_ERROR_MAX) < PRESSURE_TOLERANCE) ITERATE_BAROCLINIC_TERM = .FALSE.
+
+      IF (PREDICTOR .AND. PRESSURE_ITERATIONS >= MAX_PREDICTOR_PRESSURE_ITERATIONS) EXIT PRESSURE_ITERATION_LOOP
+      IF (CORRECTOR .AND. PRESSURE_ITERATIONS >= MAX_PRESSURE_ITERATIONS)             EXIT PRESSURE_ITERATION_LOOP
+
+      IF (MAXVAL(PRESSURE_ERROR_MAX) < PRESSURE_TOLERANCE .AND. MAXVAL(VELOCITY_ERROR_MAX) < VELOCITY_TOLERANCE) THEN
          EXIT PRESSURE_ITERATION_LOOP
       ENDIF
-   ENDIF
-   ! ====================================================================
 
-   IF (.NOT.ITERATE_PRESSURE) EXIT PRESSURE_ITERATION_LOOP
+      IF (SUSPEND_PRESSURE_ITERATIONS .AND. ICYC > 10) THEN
+         IF (PRESSURE_ITERATIONS > 3 .AND. &
+             MAXVAL(VELOCITY_ERROR_MAX) > ITERATION_SUSPEND_FACTOR * VELOCITY_ERROR_MAX_OLD .AND. &
+             MAXVAL(PRESSURE_ERROR_MAX) > ITERATION_SUSPEND_FACTOR * PRESSURE_ERROR_MAX_OLD) EXIT PRESSURE_ITERATION_LOOP
+         VELOCITY_ERROR_MAX_OLD = MAXVAL(VELOCITY_ERROR_MAX)
+         PRESSURE_ERROR_MAX_OLD = MAXVAL(PRESSURE_ERROR_MAX)
+      ENDIF
 
-   CALL MESH_EXCHANGE(5)
+   ENDDO PRESSURE_ITERATION_LOOP
 
-   DO NM=LOWER_MESH_INDEX,UPPER_MESH_INDEX
-      CALL COMPUTE_VELOCITY_ERROR(DT,NM)
-      IF (CC_IBM) CALL CC_COMPUTE_VELOCITY_ERROR(DT,NM)
-   ENDDO
+   STEP_TOTAL_T_POISSON  = STEP_TOTAL_T_POISSON  + TOTAL_T_POISSON
+   STEP_COUNT_POISSON    = STEP_COUNT_POISSON    + COUNT_POISSON
 
-   IF (N_MPI_PROCESSES>1) THEN
-      TNOW = CURRENT_TIME()
-      REAL_BUFFER_10(  1,LOWER_MESH_INDEX:UPPER_MESH_INDEX) = VELOCITY_ERROR_MAX(LOWER_MESH_INDEX:UPPER_MESH_INDEX)
-      REAL_BUFFER_10(  2,LOWER_MESH_INDEX:UPPER_MESH_INDEX) = PRESSURE_ERROR_MAX(LOWER_MESH_INDEX:UPPER_MESH_INDEX)
-      REAL_BUFFER_10(3:5,LOWER_MESH_INDEX:UPPER_MESH_INDEX) = VELOCITY_ERROR_MAX_LOC(1:3,LOWER_MESH_INDEX:UPPER_MESH_INDEX)
-      REAL_BUFFER_10(6:8,LOWER_MESH_INDEX:UPPER_MESH_INDEX) = PRESSURE_ERROR_MAX_LOC(1:3,LOWER_MESH_INDEX:UPPER_MESH_INDEX)
-      CALL MPI_ALLGATHERV(MPI_IN_PLACE,0,MPI_DATATYPE_NULL,REAL_BUFFER_10(1:10,1:NMESHES),&
-                          COUNTS_10,DISPLS_10,MPI_DOUBLE_PRECISION,MPI_COMM_WORLD,IERR)
-      VELOCITY_ERROR_MAX(:)         =     REAL_BUFFER_10(1,:)
-      PRESSURE_ERROR_MAX(:)         =     REAL_BUFFER_10(2,:)
-      VELOCITY_ERROR_MAX_LOC(1:3,:) = INT(REAL_BUFFER_10(3:5,:))
-      PRESSURE_ERROR_MAX_LOC(1:3,:) = INT(REAL_BUFFER_10(6:8,:))
-      T_USED(11)=T_USED(11) + CURRENT_TIME() - TNOW
-   ENDIF
+   STAGE_TOTAL_T_POISSON = STAGE_TOTAL_T_POISSON + TOTAL_T_POISSON
+   STAGE_COUNT_POISSON   = STAGE_COUNT_POISSON   + COUNT_POISSON
 
-   IF (MY_RANK==0 .AND. VELOCITY_ERROR_FILE) THEN
-      NM_MAX_V = MAXLOC(VELOCITY_ERROR_MAX,DIM=1)
-      NM_MAX_P = MAXLOC(PRESSURE_ERROR_MAX,DIM=1)
-      WRITE(LU_VELOCITY_ERROR,'(E16.8,A,7(I7,A),E16.8,A,4(I7,A),E16.8)') T,',',ICYC,',',PRESSURE_ITERATIONS,',',&
-         TOTAL_PRESSURE_ITERATIONS,',',&
-         NM_MAX_V,',',VELOCITY_ERROR_MAX_LOC(1,NM_MAX_V),',',VELOCITY_ERROR_MAX_LOC(2,NM_MAX_V),',',&
-         VELOCITY_ERROR_MAX_LOC(3,NM_MAX_V),',',MAXVAL(VELOCITY_ERROR_MAX),',',&
-         NM_MAX_P,',',PRESSURE_ERROR_MAX_LOC(1,NM_MAX_P),',',PRESSURE_ERROR_MAX_LOC(2,NM_MAX_P),',',&
-         PRESSURE_ERROR_MAX_LOC(3,NM_MAX_P),',',MAXVAL(PRESSURE_ERROR_MAX)
-   ENDIF
-
-   IF (MAXVAL(PRESSURE_ERROR_MAX)<PRESSURE_TOLERANCE) ITERATE_BAROCLINIC_TERM = .FALSE.
-
-   ! 2. 传统判定标准
-   IF (PREDICTOR .AND. PRESSURE_ITERATIONS>=MAX_PREDICTOR_PRESSURE_ITERATIONS) EXIT PRESSURE_ITERATION_LOOP
-   IF (CORRECTOR .AND. PRESSURE_ITERATIONS>=MAX_PRESSURE_ITERATIONS)           EXIT PRESSURE_ITERATION_LOOP
-
-   IF (MAXVAL(PRESSURE_ERROR_MAX)<PRESSURE_TOLERANCE .AND. MAXVAL(VELOCITY_ERROR_MAX)<VELOCITY_TOLERANCE) THEN
-      EXIT PRESSURE_ITERATION_LOOP
-   ENDIF
-
-   IF (SUSPEND_PRESSURE_ITERATIONS .AND. ICYC>10) THEN
-      IF (PRESSURE_ITERATIONS>3 .AND.  &
-         MAXVAL(VELOCITY_ERROR_MAX)>ITERATION_SUSPEND_FACTOR*VELOCITY_ERROR_MAX_OLD .AND. &
-         MAXVAL(PRESSURE_ERROR_MAX)>ITERATION_SUSPEND_FACTOR*PRESSURE_ERROR_MAX_OLD) EXIT PRESSURE_ITERATION_LOOP
-      VELOCITY_ERROR_MAX_OLD = MAXVAL(VELOCITY_ERROR_MAX)
-      PRESSURE_ERROR_MAX_OLD = MAXVAL(PRESSURE_ERROR_MAX)
-   ENDIF
-
-ENDDO PRESSURE_ITERATION_LOOP
-
-! ====== 累加当前调用（预测或校正）的数据 ======
-STEP_TOTAL_T_POISSON  = STEP_TOTAL_T_POISSON  + TOTAL_T_POISSON
-STEP_COUNT_POISSON    = STEP_COUNT_POISSON    + COUNT_POISSON
-
-STAGE_TOTAL_T_POISSON = STAGE_TOTAL_T_POISSON + TOTAL_T_POISSON
-STAGE_COUNT_POISSON   = STAGE_COUNT_POISSON   + COUNT_POISSON
-
-ALL_TOTAL_T_POISSON = ALL_TOTAL_T_POISSON + TOTAL_T_POISSON
-ALL_COUNT_POISSON   = ALL_COUNT_POISSON   + COUNT_POISSON
-
-IF (CORRECTOR) THEN
-   STEP_CORR_T_POISSON  = STEP_CORR_T_POISSON  + TOTAL_T_POISSON
-   STEP_CORR_COUNT_POISSON = STEP_CORR_COUNT_POISSON + COUNT_POISSON
-
-   STAGE_CORR_T_POISSON = STAGE_CORR_T_POISSON + TOTAL_T_POISSON
-   STAGE_CORR_COUNT_POISSON = STAGE_CORR_COUNT_POISSON + COUNT_POISSON
-   
-   GLOBAL_TOTAL_T_POISSON = GLOBAL_TOTAL_T_POISSON + TOTAL_T_POISSON
-   GLOBAL_COUNT_POISSON = GLOBAL_COUNT_POISSON + COUNT_POISSON
-ENDIF
-
-! =====================================================================
-! 统计结果的动态 CSV 生成与输出打印
-! =====================================================================
-IF (MY_RANK==0) THEN
-   SELECT CASE(PRES_FLAG)
-      CASE (FFT_FLAG);    SOLVER_NAME = 'FFT'
-      CASE (GLMAT_FLAG);  SOLVER_NAME = 'GLMAT'
-      CASE (UGLMAT_FLAG); SOLVER_NAME = 'UGLMAT'
-      CASE (ULMAT_FLAG);  SOLVER_NAME = 'ULMAT'
-      CASE DEFAULT;       SOLVER_NAME = 'UNKNOWN'
-   END SELECT
-
-   IF (STEP_ML_SUCCESS) THEN
-      SOLVER_NAME = TRIM(SOLVER_NAME) // '+ML'
-   ENDIF
+   ALL_TOTAL_T_POISSON   = ALL_TOTAL_T_POISSON   + TOTAL_T_POISSON
+   ALL_COUNT_POISSON     = ALL_COUNT_POISSON     + COUNT_POISSON
 
    IF (CORRECTOR) THEN
-      ! ================= 1. 步级统计信息输出 (1000步) =================
-      IF (MOD(ICYC, FREQ_STEP) == 0) THEN
-         WRITE(STAT_FILE_STEP, '(A,A,I0,A)') TRIM(CHID), '_poisson_step_', FREQ_STEP, '.csv'
+      STEP_CORR_T_POISSON     = STEP_CORR_T_POISSON     + TOTAL_T_POISSON
+      STEP_CORR_COUNT_POISSON = STEP_CORR_COUNT_POISSON + COUNT_POISSON
 
-         IF (.NOT. STAT_CSV_STEP_INIT) THEN
-            OPEN(NEWUNIT=STAT_UNIT_STEP, FILE=TRIM(STAT_FILE_STEP), STATUS='REPLACE', IOSTAT=IERR)
-            IF (IERR == 0) THEN
-               WRITE(STAT_UNIT_STEP, '(A)') 'ICYC,Time(s),Solver,Step_Total_Iter,Step_Total_Time(s),Step_Avg_Time(s),Corr_Iter,Corr_Total_Time(s),Corr_Avg_Time(s)'
-               CLOSE(STAT_UNIT_STEP)
-               STAT_CSV_STEP_INIT = .TRUE.
-            ENDIF
-         ENDIF
-
-         AVG_STEP_TOTAL = 0.0_EB
-         IF (STEP_COUNT_POISSON > 0) AVG_STEP_TOTAL = STEP_TOTAL_T_POISSON / REAL(STEP_COUNT_POISSON, EB)
-
-         AVG_STEP_CORR = 0.0_EB
-         IF (STEP_CORR_COUNT_POISSON > 0) AVG_STEP_CORR = STEP_CORR_T_POISSON / REAL(STEP_CORR_COUNT_POISSON, EB)
-
-         IF (STAT_CSV_STEP_INIT) THEN
-            OPEN(NEWUNIT=STAT_UNIT_STEP, FILE=TRIM(STAT_FILE_STEP), STATUS='OLD', POSITION='APPEND', IOSTAT=IERR)
-            IF (IERR == 0) THEN
-               WRITE(STAT_UNIT_STEP, '(I0,A,ES15.7,A,A,A,I0,A,ES15.7,A,ES15.7,A,I0,A,ES15.7,A,ES15.7)') &
-                  ICYC, ',', T, ',', TRIM(SOLVER_NAME), ',', &
-                  STEP_COUNT_POISSON, ',', STEP_TOTAL_T_POISSON, ',', AVG_STEP_TOTAL, ',', &
-                  STEP_CORR_COUNT_POISSON, ',', STEP_CORR_T_POISSON, ',', AVG_STEP_CORR
-               CLOSE(STAT_UNIT_STEP)
-            ENDIF
-         ENDIF
-
-         WRITE(*,'(A)') '------------------------------------------------------------'
-         WRITE(*,'(A,I0,A,I0,A,ES12.5,A,A)') ' >>> [Step Stats ', FREQ_STEP, '] ICYC=', ICYC, ' | T=', T, ' | SOLVER=', TRIM(SOLVER_NAME)
-         WRITE(*,'(A,I0,A,ES12.5,A)') '     -> Step Total Iters : ', STEP_COUNT_POISSON, ' | Time : ', STEP_TOTAL_T_POISSON, ' s'
-         WRITE(*,'(A,I0,A,ES12.5,A)') '     -> Step Corr  Iters : ', STEP_CORR_COUNT_POISSON, ' | Time : ', STEP_CORR_T_POISSON, ' s'
-         WRITE(*,'(A)') '------------------------------------------------------------'
-      ENDIF
-
-      ! ================= 2. 阶段级统计信息输出 (2000步) =================
-      IF (MOD(ICYC, FREQ_STAGE) == 0) THEN
-         WRITE(STAT_FILE_STAGE, '(A,A,I0,A)') TRIM(CHID), '_poisson_stage_', FREQ_STAGE, '.csv'
-
-         IF (.NOT. STAT_CSV_STAGE_INIT) THEN
-            OPEN(NEWUNIT=STAT_UNIT_STAGE, FILE=TRIM(STAT_FILE_STAGE), STATUS='REPLACE', IOSTAT=IERR)
-            IF (IERR == 0) THEN
-               WRITE(STAT_UNIT_STAGE, '(A)') 'ICYC_End,Time(s),Solver,Stage_Total_Iter,Stage_Total_Time(s),Stage_Avg_Time(s),Stage_Corr_Iter,Stage_Corr_Total_Time(s),Stage_Corr_Avg_Time(s)'
-               CLOSE(STAT_UNIT_STAGE)
-               STAT_CSV_STAGE_INIT = .TRUE.
-            ENDIF
-         ENDIF
-
-         AVG_STAGE_TOTAL = 0.0_EB
-         IF (STAGE_COUNT_POISSON > 0) AVG_STAGE_TOTAL = STAGE_TOTAL_T_POISSON / REAL(STAGE_COUNT_POISSON, EB)
-
-         AVG_STAGE_CORR = 0.0_EB
-         IF (STAGE_CORR_COUNT_POISSON > 0) AVG_STAGE_CORR = STAGE_CORR_T_POISSON / REAL(STAGE_CORR_COUNT_POISSON, EB)
-
-         IF (STAT_CSV_STAGE_INIT) THEN
-            OPEN(NEWUNIT=STAT_UNIT_STAGE, FILE=TRIM(STAT_FILE_STAGE), STATUS='OLD', POSITION='APPEND', IOSTAT=IERR)
-            IF (IERR == 0) THEN
-               WRITE(STAT_UNIT_STAGE, '(I0,A,ES15.7,A,A,A,I0,A,ES15.7,A,ES15.7,A,I0,A,ES15.7,A,ES15.7)') &
-                  ICYC, ',', T, ',', TRIM(SOLVER_NAME), ',', &
-                  STAGE_COUNT_POISSON, ',', STAGE_TOTAL_T_POISSON, ',', AVG_STAGE_TOTAL, ',', &
-                  STAGE_CORR_COUNT_POISSON, ',', STAGE_CORR_T_POISSON, ',', AVG_STAGE_CORR
-               CLOSE(STAT_UNIT_STAGE)
-            ENDIF
-         ENDIF
-
-         WRITE(*,'(A)') '============================================================'
-         WRITE(*,'(A,I0,A,I0,A,ES12.5)') ' >>> [Stage Stats ', FREQ_STAGE, '] Completed at ICYC=', ICYC, ' | T=', T
-         WRITE(*,'(A,I0,A,ES12.5,A)') '     -> Stage Total Iters: ', STAGE_COUNT_POISSON, ' | Time : ', STAGE_TOTAL_T_POISSON, ' s'
-         WRITE(*,'(A,I0,A,ES12.5,A)') '     -> Stage Corr  Iters: ', STAGE_CORR_COUNT_POISSON, ' | Time : ', STAGE_CORR_T_POISSON, ' s'
-         WRITE(*,'(A)') '============================================================'
-
-         STAGE_TOTAL_T_POISSON = 0.0_EB
-         STAGE_COUNT_POISSON = 0
-         STAGE_CORR_T_POISSON = 0.0_EB
-         STAGE_CORR_COUNT_POISSON = 0
-      ENDIF
-
-      ! ================= 3. ML 专属 100 步级统计信息输出 =================
-      IF (MOD(ICYC, FREQ_ML) == 0) THEN
-         WRITE(STAT_FILE_ML, '(A,A,I0,A)') TRIM(CHID), '_ml_stats_', FREQ_ML, '.csv'
-
-         ! 初始化 CSV 及表头
-         IF (.NOT. STAT_CSV_ML_INIT) THEN
-            OPEN(NEWUNIT=STAT_UNIT_ML, FILE=TRIM(STAT_FILE_ML), STATUS='REPLACE', IOSTAT=IERR)
-            IF (IERR == 0) THEN
-               WRITE(STAT_UNIT_ML, '(A)') 'ICYC,Simulation_Time(s),Used_ML_In_Period,Total_ML_Calls,Success_ML_Calls,Total_ML_Time(s),Avg_ML_Time(s),Total_ML_Infer_Time(s),Avg_ML_Infer_Time(s)'
-               CLOSE(STAT_UNIT_ML)
-               STAT_CSV_ML_INIT = .TRUE.
-            ENDIF
-         ENDIF
-
-         ! 计算周期内的统计数据
-         IF (PERIODIC_ML_CALLS > 0) THEN
-            STR_USED_ML = 'TRUE'
-            AVG_ML_TIME = PERIODIC_ML_TIME / REAL(PERIODIC_ML_CALLS, EB)
-            AVG_ML_INFER_TIME = PERIODIC_ML_INFER_TIME / REAL(PERIODIC_ML_CALLS, EB) 
-         ELSE
-            STR_USED_ML = 'FALSE'
-            AVG_ML_TIME = 0.0_EB
-            AVG_ML_INFER_TIME = 0.0_EB
-         ENDIF
-
-         ! 追加写入当前 100 步的统计数据
-         IF (STAT_CSV_ML_INIT) THEN
-            OPEN(NEWUNIT=STAT_UNIT_ML, FILE=TRIM(STAT_FILE_ML), STATUS='OLD', POSITION='APPEND', IOSTAT=IERR)
-            IF (IERR == 0) THEN
-               WRITE(STAT_UNIT_ML, '(I0,A,ES15.7,A,A,A,I0,A,I0,A,ES15.7,A,ES15.7,A,ES15.7,A,ES15.7)') &
-                  ICYC, ',', T, ',', TRIM(STR_USED_ML), ',', &
-                  PERIODIC_ML_CALLS, ',', PERIODIC_ML_SUCCESS, ',', &
-                  PERIODIC_ML_TIME, ',', AVG_ML_TIME, ',', &
-                  PERIODIC_ML_INFER_TIME, ',', AVG_ML_INFER_TIME
-               CLOSE(STAT_UNIT_ML)
-            ENDIF
-         ENDIF
-
-         ! 在控制台同步打印信息
-         WRITE(*,'(A)') '============================================================'
-         WRITE(*,'(A,I0,A,A)') ' >>> [ML 100-Step Stats] Completed at ICYC=', ICYC, ' | Used ML: ', TRIM(STR_USED_ML)
-         WRITE(*,'(A,I0,A,I0)') '     -> ML Calls (Attempted/Success) : ', PERIODIC_ML_CALLS, ' / ', PERIODIC_ML_SUCCESS
-         WRITE(*,'(A,ES12.5,A,ES12.5,A)') '     -> ML Time (Total/Avg)          : ', PERIODIC_ML_TIME, ' s / ', AVG_ML_TIME, ' s'
-         WRITE(*,'(A,ES12.5,A,ES12.5,A)') '     -> ML Pure Infer (Total/Avg)    : ', PERIODIC_ML_INFER_TIME, ' s / ', AVG_ML_INFER_TIME, ' s'
-         WRITE(*,'(A)') '============================================================'
-
-         ! 重置 100 步周期计数器
-         PERIODIC_ML_CALLS = 0
-         PERIODIC_ML_SUCCESS = 0
-         PERIODIC_ML_TIME = 0.0_EB
-         PERIODIC_ML_INFER_TIME = 0.0_EB
-      ENDIF
-   ENDIF
-ENDIF
-
-! ===== 模拟结束时的最终全局汇总报告 =====
-IF (MY_RANK == 0) THEN   
-   IF (CORRECTOR .AND. (STOP_STATUS/=NO_STOP .OR. (T+DT)>=T_END)) THEN
-      WRITE(*,'(A)') '========================================================'
-      WRITE(*,'(A)') ' Poisson Solver Final Statistics Report'
-      WRITE(*,'(A)') '========================================================'
-      WRITE(*,'(A,I0,A)') ' Corrector Step Total Calls : ', GLOBAL_COUNT_POISSON, ' times'
-      WRITE(*,'(A,ES12.5,A)') ' Corrector Step Total Time  : ', GLOBAL_TOTAL_T_POISSON, ' seconds'
-      IF (GLOBAL_COUNT_POISSON > 0) THEN
-         WRITE(*,'(A,ES12.5,A)') ' Corrector Avg Time/Call    : ', &
-            GLOBAL_TOTAL_T_POISSON/REAL(GLOBAL_COUNT_POISSON,EB), ' seconds'
-      ENDIF
-      WRITE(*,'(A,I0,A)') ' All Steps Total Calls      : ', ALL_COUNT_POISSON, ' times'
-      WRITE(*,'(A,ES12.5,A)') ' All Steps Total Time       : ', ALL_TOTAL_T_POISSON, ' seconds'
-      IF (ALL_COUNT_POISSON > 0) THEN
-         WRITE(*,'(A,ES12.5,A)') ' All Steps Avg Time/Call    : ', &
-            ALL_TOTAL_T_POISSON/REAL(ALL_COUNT_POISSON,EB), ' seconds'
-      ENDIF
+      STAGE_CORR_T_POISSON    = STAGE_CORR_T_POISSON    + TOTAL_T_POISSON
+      STAGE_CORR_COUNT_POISSON = STAGE_CORR_COUNT_POISSON + COUNT_POISSON
       
-      WRITE(*,'(A)') '--------------------------------------------------------'
-      WRITE(*,'(A,I0,A)') ' Total ML Attempts          : ', ML_CALL_COUNT, ' times'
-      WRITE(*,'(A,I0,A)') ' Total ML Successes         : ', ML_SUCCESS_COUNT, ' times'
-      WRITE(*,'(A,I0,A)') ' Total ML Fallbacks         : ', ML_FALLBACK_COUNT, ' times'
-      WRITE(*,'(A,ES12.5,A)') ' Total ML Compute Time      : ', TOTAL_ML_TIME, ' seconds'
-      WRITE(*,'(A,ES12.5,A)') ' Total ML Pure Infer Time   : ', TOTAL_ML_INFER_TIME, ' seconds' 
-      IF (ML_CALL_COUNT > 0) THEN
-         WRITE(*,'(A,ES12.5,A)') ' Average ML Time/Attempt    : ', TOTAL_ML_TIME/REAL(ML_CALL_COUNT,EB), ' seconds'
-         WRITE(*,'(A,ES12.5,A)') ' Average ML Infer/Attempt   : ', TOTAL_ML_INFER_TIME/REAL(ML_CALL_COUNT,EB), ' seconds'
-      ENDIF
-      WRITE(*,'(A)') '========================================================'
+      GLOBAL_TOTAL_T_POISSON  = GLOBAL_TOTAL_T_POISSON  + TOTAL_T_POISSON
+      GLOBAL_COUNT_POISSON    = GLOBAL_COUNT_POISSON    + COUNT_POISSON
    ENDIF
-ENDIF  
+
+   IF (MY_RANK == 0) THEN
+      SELECT CASE(PRES_FLAG)
+         CASE (FFT_FLAG);    SOLVER_NAME = 'FFT'
+         CASE (GLMAT_FLAG);  SOLVER_NAME = 'GLMAT'
+         CASE (UGLMAT_FLAG); SOLVER_NAME = 'UGLMAT'
+         CASE (ULMAT_FLAG);  SOLVER_NAME = 'ULMAT'
+         CASE DEFAULT;       SOLVER_NAME = 'UNKNOWN'
+      END SELECT
+
+      IF (STEP_ML_SUCCESS) THEN
+         SOLVER_NAME = TRIM(SOLVER_NAME) // '+ML'
+      ENDIF
+
+      IF (CORRECTOR) THEN
+         IF (MOD(ICYC, FREQ_STEP) == 0) THEN
+            WRITE(STAT_FILE_STEP, '(A,A,I0,A)') TRIM(CHID), '_poisson_step_', FREQ_STEP, '.csv'
+
+            IF (.NOT. STAT_CSV_STEP_INIT) THEN
+               OPEN(NEWUNIT=STAT_UNIT_STEP, FILE=TRIM(STAT_FILE_STEP), STATUS='REPLACE', IOSTAT=IERR)
+               IF (IERR == 0) THEN
+                  WRITE(STAT_UNIT_STEP, '(A)') 'ICYC,Time(s),Solver,Step_Total_Iter,Step_Total_Time(s),Step_Avg_Time(s),Corr_Iter,Corr_Total_Time(s),Corr_Avg_Time(s)'
+                  CLOSE(STAT_UNIT_STEP)
+                  STAT_CSV_STEP_INIT = .TRUE.
+               ENDIF
+            ENDIF
+
+            AVG_STEP_TOTAL = 0.0_EB
+            IF (STEP_COUNT_POISSON > 0) AVG_STEP_TOTAL = STEP_TOTAL_T_POISSON / REAL(STEP_COUNT_POISSON, EB)
+
+            AVG_STEP_CORR = 0.0_EB
+            IF (STEP_CORR_COUNT_POISSON > 0) AVG_STEP_CORR = STEP_CORR_T_POISSON / REAL(STEP_CORR_COUNT_POISSON, EB)
+
+            IF (STAT_CSV_STEP_INIT) THEN
+               OPEN(NEWUNIT=STAT_UNIT_STEP, FILE=TRIM(STAT_FILE_STEP), STATUS='OLD', POSITION='APPEND', IOSTAT=IERR)
+               IF (IERR == 0) THEN
+                  WRITE(STAT_UNIT_STEP, '(I0,A,ES15.7,A,A,A,I0,A,ES15.7,A,ES15.7,A,I0,A,ES15.7,A,ES15.7)') &
+                     ICYC, ',', T, ',', TRIM(SOLVER_NAME), ',', &
+                     STEP_COUNT_POISSON, ',', STEP_TOTAL_T_POISSON, ',', AVG_STEP_TOTAL, ',', &
+                     STEP_CORR_COUNT_POISSON, ',', STEP_CORR_T_POISSON, ',', AVG_STEP_CORR
+                  CLOSE(STAT_UNIT_STEP)
+               ENDIF
+            ENDIF
+         ENDIF
+
+         IF (MOD(ICYC, FREQ_STAGE) == 0) THEN
+            WRITE(STAT_FILE_STAGE, '(A,A,I0,A)') TRIM(CHID), '_poisson_stage_', FREQ_STAGE, '.csv'
+
+            IF (.NOT. STAT_CSV_STAGE_INIT) THEN
+               OPEN(NEWUNIT=STAT_UNIT_STAGE, FILE=TRIM(STAT_FILE_STAGE), STATUS='REPLACE', IOSTAT=IERR)
+               IF (IERR == 0) THEN
+                  WRITE(STAT_UNIT_STAGE, '(A)') 'ICYC_End,Time(s),Solver,Stage_Total_Iter,Stage_Total_Time(s),Stage_Avg_Time(s),Stage_Corr_Iter,Stage_Corr_Total_Time(s),Stage_Corr_Avg_Time(s)'
+                  CLOSE(STAT_UNIT_STAGE)
+                  STAT_CSV_STAGE_INIT = .TRUE.
+               ENDIF
+            ENDIF
+
+            AVG_STAGE_TOTAL = 0.0_EB
+            IF (STAGE_COUNT_POISSON > 0) AVG_STAGE_TOTAL = STAGE_TOTAL_T_POISSON / REAL(STAGE_COUNT_POISSON, EB)
+
+            AVG_STAGE_CORR = 0.0_EB
+            IF (STAGE_CORR_COUNT_POISSON > 0) AVG_STAGE_CORR = STAGE_CORR_T_POISSON / REAL(STAGE_CORR_COUNT_POISSON, EB)
+
+            IF (STAT_CSV_STAGE_INIT) THEN
+               OPEN(NEWUNIT=STAT_UNIT_STAGE, FILE=TRIM(STAT_FILE_STAGE), STATUS='OLD', POSITION='APPEND', IOSTAT=IERR)
+               IF (IERR == 0) THEN
+                  WRITE(STAT_UNIT_STAGE, '(I0,A,ES15.7,A,A,A,I0,A,ES15.7,A,ES15.7,A,I0,A,ES15.7,A,ES15.7)') &
+                     ICYC, ',', T, ',', TRIM(SOLVER_NAME), ',', &
+                     STAGE_COUNT_POISSON, ',', STAGE_TOTAL_T_POISSON, ',', AVG_STAGE_TOTAL, ',', &
+                     STAGE_CORR_COUNT_POISSON, ',', STAGE_CORR_T_POISSON, ',', AVG_STAGE_CORR
+                  CLOSE(STAT_UNIT_STAGE)
+               ENDIF
+            ENDIF
+
+            STAGE_TOTAL_T_POISSON    = 0.0_EB
+            STAGE_COUNT_POISSON      = 0
+            STAGE_CORR_T_POISSON     = 0.0_EB
+            STAGE_CORR_COUNT_POISSON = 0
+         ENDIF
+
+         ! ==============================================================================
+         ! ML 专属周期输出：优化 Used_ML 显示，计算准确的 Attempted 平均数
+         ! ==============================================================================
+         IF (MOD(ICYC, FREQ_ML) == 0) THEN
+            WRITE(STAT_FILE_ML, '(A,A,I0,A)') TRIM(CHID), '_ml_stats_', FREQ_ML, '.csv'
+
+            IF (.NOT. STAT_CSV_ML_INIT) THEN
+               OPEN(NEWUNIT=STAT_UNIT_ML, FILE=TRIM(STAT_FILE_ML), STATUS='REPLACE', IOSTAT=IERR)
+               IF (IERR == 0) THEN
+                  WRITE(STAT_UNIT_ML, '(A)') 'ICYC,Simulation_Time(s),Used_ML_In_Period,Total_ML_Calls,Success_ML_Calls,Total_ML_Time(s),Avg_ML_Time(s),Total_ML_Infer_Time(s),Avg_ML_Infer_Time(s),Total_Native_Calls,Total_Native_Time(s),Avg_Native_Time(s)'
+                  CLOSE(STAT_UNIT_ML)
+                  STAT_CSV_ML_INIT = .TRUE.
+               ENDIF
+            ENDIF
+
+            ! 如果有成功，视为本周期 Used_ML: TRUE，但平均值永远除以 Attempted
+            IF (PERIODIC_ML_SUCCESS > 0) THEN
+               STR_USED_ML = 'TRUE '
+            ELSE
+               STR_USED_ML = 'FALSE'
+            ENDIF
+
+            IF (PERIODIC_ML_CALLS > 0) THEN
+               AVG_ML_TIME       = PERIODIC_ML_TIME / REAL(PERIODIC_ML_CALLS, EB)
+               AVG_ML_INFER_TIME = PERIODIC_ML_INFER_TIME / REAL(PERIODIC_ML_CALLS, EB) 
+            ELSE
+               AVG_ML_TIME       = 0.0_EB
+               AVG_ML_INFER_TIME = 0.0_EB
+            ENDIF
+            
+            IF (PERIODIC_NATIVE_CALLS > 0) THEN
+               AVG_NATIVE_TIME = PERIODIC_NATIVE_TIME / REAL(PERIODIC_NATIVE_CALLS, EB)
+            ELSE
+               AVG_NATIVE_TIME = 0.0_EB
+            ENDIF
+
+            IF (STAT_CSV_ML_INIT) THEN
+               OPEN(NEWUNIT=STAT_UNIT_ML, FILE=TRIM(STAT_FILE_ML), STATUS='OLD', POSITION='APPEND', IOSTAT=IERR)
+               IF (IERR == 0) THEN
+                  WRITE(STAT_UNIT_ML, '(I0,A,ES15.7,A,A,A,I0,A,I0,A,ES15.7,A,ES15.7,A,ES15.7,A,ES15.7,A,I0,A,ES15.7,A,ES15.7)') &
+                     ICYC, ',', T, ',', TRIM(STR_USED_ML), ',', &
+                     PERIODIC_ML_CALLS, ',', PERIODIC_ML_SUCCESS, ',', &
+                     PERIODIC_ML_TIME, ',', AVG_ML_TIME, ',', &
+                     PERIODIC_ML_INFER_TIME, ',', AVG_ML_INFER_TIME, ',', &
+                     PERIODIC_NATIVE_CALLS, ',', PERIODIC_NATIVE_TIME, ',', AVG_NATIVE_TIME
+                  CLOSE(STAT_UNIT_ML)
+               ENDIF
+            ENDIF
+
+            ! 控制台无条件打印所有字段信息
+            WRITE(*,'(A)') '============================================================'
+            WRITE(*,'(A,I0,A,I0,A,A)') ' >>> [Solver ', FREQ_ML, '-Step Stats] Completed at ICYC=', ICYC, ' | Used ML: ', TRIM(STR_USED_ML)
+            WRITE(*,'(A)') '     [Machine Learning Solver]'
+            WRITE(*,'(A,I0,A,I0)') '     -> ML Calls (Attempted/Success) : ', PERIODIC_ML_CALLS, ' / ', PERIODIC_ML_SUCCESS
+            WRITE(*,'(A,ES12.5,A,ES12.5,A)') '     -> ML Time (Total/Avg)          : ', PERIODIC_ML_TIME, ' s / ', AVG_ML_TIME, ' s'
+            WRITE(*,'(A,ES12.5,A,ES12.5,A)') '     -> ML Pure Infer (Total/Avg)    : ', PERIODIC_ML_INFER_TIME, ' s / ', AVG_ML_INFER_TIME, ' s'
+            WRITE(*,'(A)') '     [Native FDS Solver]'
+            WRITE(*,'(A,I0)') '     -> Native Calls                 : ', PERIODIC_NATIVE_CALLS
+            WRITE(*,'(A,ES12.5,A,ES12.5,A)') '     -> Native Time (Total/Avg)      : ', PERIODIC_NATIVE_TIME, ' s / ', AVG_NATIVE_TIME, ' s'
+            WRITE(*,'(A)') '============================================================'
+
+            PERIODIC_ML_CALLS      = 0
+            PERIODIC_ML_SUCCESS    = 0
+            PERIODIC_ML_TIME       = 0.0_EB
+            PERIODIC_ML_INFER_TIME = 0.0_EB
+            PERIODIC_NATIVE_CALLS  = 0
+            PERIODIC_NATIVE_TIME   = 0.0_EB
+         ENDIF
+      ENDIF
+   ENDIF
+
+   IF (CORRECTOR .AND. (STOP_STATUS /= NO_STOP .OR. (T + DT) >= T_END)) THEN
+      IF (MY_RANK == 0) THEN   
+         WRITE(*,'(A)') '========================================================'
+         WRITE(*,'(A)') ' Poisson Solver Final Statistics Report'
+         WRITE(*,'(A)') '========================================================'
+         WRITE(*,'(A,I0,A)') ' Corrector Step Total Calls : ', GLOBAL_COUNT_POISSON, ' times'
+         WRITE(*,'(A,ES12.5,A)') ' Corrector Step Total Time  : ', GLOBAL_TOTAL_T_POISSON, ' seconds'
+         IF (GLOBAL_COUNT_POISSON > 0) THEN
+            WRITE(*,'(A,ES12.5,A)') ' Corrector Avg Time/Call    : ', &
+               GLOBAL_TOTAL_T_POISSON / REAL(GLOBAL_COUNT_POISSON, EB), ' seconds'
+         ENDIF
+         WRITE(*,'(A,I0,A)') ' All Steps Total Calls      : ', ALL_COUNT_POISSON, ' times'
+         WRITE(*,'(A,ES12.5,A)') ' All Steps Total Time       : ', ALL_TOTAL_T_POISSON, ' seconds'
+         IF (ALL_COUNT_POISSON > 0) THEN
+            WRITE(*,'(A,ES12.5,A)') ' All Steps Avg Time/Call    : ', &
+               ALL_TOTAL_T_POISSON / REAL(ALL_COUNT_POISSON, EB), ' seconds'
+         ENDIF
+         WRITE(*,'(A)') '--------------------------------------------------------'
+         WRITE(*,'(A,I0,A)') ' Total ML Attempts          : ', ML_CALL_COUNT, ' times'
+         WRITE(*,'(A,I0,A)') ' Total ML Successes         : ', ML_SUCCESS_COUNT, ' times'
+         WRITE(*,'(A,I0,A)') ' Total ML Fallbacks         : ', ML_FALLBACK_COUNT, ' times'
+         WRITE(*,'(A,ES12.5,A)') ' Total ML Compute Time      : ', TOTAL_ML_TIME, ' seconds'
+         WRITE(*,'(A,ES12.5,A)') ' Total ML Pure Infer Time   : ', TOTAL_ML_INFER_TIME, ' seconds' 
+         IF (ML_CALL_COUNT > 0) THEN
+            WRITE(*,'(A,ES12.5,A)') ' Average ML Time/Attempt    : ', TOTAL_ML_TIME / REAL(ML_CALL_COUNT, EB), ' seconds'
+            WRITE(*,'(A,ES12.5,A)') ' Average ML Infer/Attempt   : ', TOTAL_ML_INFER_TIME / REAL(ML_CALL_COUNT, EB), ' seconds'
+         ENDIF
+         WRITE(*,'(A)') '========================================================'
+      ENDIF
+
+      CALL FreeONNX()
+   ENDIF  
 
 END SUBROUTINE PRESSURE_ITERATION_SCHEME
+
 
 
 !> \brief Compute a running average of the source correction factor for the radiative transport scheme.

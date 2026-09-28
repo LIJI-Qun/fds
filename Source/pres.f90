@@ -7,9 +7,14 @@ USE MESH_POINTERS
 
 IMPLICIT NONE (TYPE,EXTERNAL)
 PRIVATE
+! PRESSURE_SOLVER_NNet 与外部主程序共享同一份状态；
+LOGICAL, SAVE :: ML_ACTIVE      = .TRUE.
+LOGICAL, SAVE :: ML_INIT_FAILED = .FALSE.
 
-PUBLIC PRESSURE_SOLVER_COMPUTE_RHS,PRESSURE_SOLVER_FFT,TUNNEL_POISSON_SOLVER,PRESSURE_SOLVER_CHECK_RESIDUALS, &
-       COMPUTE_VELOCITY_ERROR, PRESSURE_SOLVER_NNet
+PUBLIC :: PRESSURE_SOLVER_FFT, &
+          COMPUTE_VELOCITY_ERROR, PRESSURE_SOLVER_NNet_GLOBAL, ML_ACTIVE, ML_INIT_FAILED, &
+          PRESSURE_SOLVER_CHECK_RESIDUALS, PRESSURE_SOLVER_COMPUTE_RHS, TUNNEL_POISSON_SOLVER
+
 
 CONTAINS
 
@@ -314,174 +319,288 @@ END SELECT
 T_USED(5)=T_USED(5)+CURRENT_TIME()-TNOW
 END SUBROUTINE PRESSURE_SOLVER_COMPUTE_RHS
 
-!> \brief Calls external Pure Point-wise MLP Model via C++ ONNX Bridge (FP32 Fast Version)
-SUBROUTINE PRESSURE_SOLVER_NNet(NM)
+!> \brief Calls external DeepONet Model via C++ ONNX Bridge (Trunk & Branch)
+SUBROUTINE PRESSURE_SOLVER_NNet_GLOBAL(PURE_INFER_T)
 
-   USE MESH_POINTERS
-   USE COMP_FUNCTIONS, ONLY: CURRENT_TIME
-   USE GLOBAL_CONSTANTS, ONLY: T_USED, MY_RANK, EB
-   USE ISO_C_BINDING
+   USE COMP_FUNCTIONS,   ONLY: CURRENT_TIME
+   USE GLOBAL_CONSTANTS, ONLY: T_USED, MY_RANK, N_MPI_PROCESSES, EB, &
+                               LOWER_MESH_INDEX, UPPER_MESH_INDEX, NMESHES, PREDICTOR
+   USE MESH_VARIABLES,   ONLY: MESHES
+   USE ISO_C_BINDING,    ONLY: C_FLOAT, C_INT
+
+#ifdef _OPENMP
+   USE OMP_LIB, ONLY: OMP_GET_MAX_THREADS
+#endif
+#ifdef MPI
+   USE MPI
+#endif
 
    IMPLICIT NONE
-   INTEGER, INTENT(IN) :: NM
 
-   ! ======================================================================
-   ! 声明外部 C++ 接口 (已变更为 C_FLOAT 单精度接收)
-   ! ======================================================================
+   ! 返回纯 C++ ONNX 矩阵推理耗时 (秒)
+   REAL(EB), INTENT(OUT) :: PURE_INFER_T
+
    INTERFACE
-      SUBROUTINE NNpredict(ml_in, ml_out, batch_size, channels, num_points, rank) BIND(C, NAME='NNpredict')
+      FUNCTION InitMeshTrunk(nm_idx, coords, num_points, num_threads) &
+               BIND(C, NAME='InitMeshTrunk') RESULT(STATUS)
          IMPORT :: C_FLOAT, C_INT
+         INTEGER(C_INT), VALUE :: nm_idx
+         REAL(C_FLOAT), DIMENSION(*), INTENT(IN) :: coords
+         INTEGER(C_INT), VALUE :: num_points
+         INTEGER(C_INT), VALUE :: num_threads
+         INTEGER(C_INT) :: STATUS
+      END FUNCTION InitMeshTrunk
+
+      FUNCTION NNpredict(nm_idx, ml_in, ml_out, num_points) &
+               BIND(C, NAME='NNpredict') RESULT(STATUS)
+         IMPORT :: C_FLOAT, C_INT
+         INTEGER(C_INT), VALUE :: nm_idx
          REAL(C_FLOAT), DIMENSION(*), INTENT(IN)  :: ml_in
          REAL(C_FLOAT), DIMENSION(*), INTENT(OUT) :: ml_out
-         INTEGER(C_INT), VALUE :: batch_size, channels, num_points, rank
-      END SUBROUTINE NNpredict
+         INTEGER(C_INT), VALUE :: num_points
+         INTEGER(C_INT) :: STATUS
+      END FUNCTION NNpredict
    END INTERFACE
 
-   ! 局部变量
-   INTEGER :: II, JJ, KK, IDX
-   INTEGER :: N_POINTS, C_CHANNELS, BATCH_SIZE
-   REAL(EB) :: TNOW
+   INTEGER :: NM, II, JJ, KK, IERR
+   INTEGER :: GLOBAL_IDX
 
-   ! === 细分阶段耗时变量 ===
-   REAL(EB) :: T0, T1, T2, T3
-   REAL(EB) :: T_PACK, T_INFER, T_UNPACK
+   INTEGER, SAVE :: TOTAL_GLOBAL_POINTS = 0
+   INTEGER, ALLOCATABLE, SAVE, DIMENSION(:) :: MESH_OFFSET
 
-   ! 使用 SAVE 避免重复分配，并且强制使用 C_FLOAT
-   REAL(C_FLOAT), ALLOCATABLE, SAVE, DIMENSION(:) :: ML_IN_FP32, ML_OUT_FP32
-   INTEGER, SAVE :: ALLOCATED_POINTS = 0
+   INTEGER(C_INT) :: STATUS_ML, N_THREADS_ML
+   REAL(EB) :: TNOW, DXI, DETA, DZETA
+   REAL(EB) :: T_START_NN  ! 用于包裹 NNpredict 的高精度计时
+
+   LOGICAL, SAVE :: INIT_DONE  = .FALSE.
+   LOGICAL, SAVE :: TRUNK_DONE = .FALSE.
+
+   REAL(C_FLOAT), ALLOCATABLE, SAVE, DIMENSION(:) :: GLOBAL_ML_IN
+   REAL(C_FLOAT), ALLOCATABLE, SAVE, DIMENSION(:) :: GLOBAL_ML_OUT
+   REAL(C_FLOAT), ALLOCATABLE, SAVE, DIMENSION(:) :: GLOBAL_COORDS
+
+   REAL(EB), POINTER, DIMENSION(:,:,:) :: HP, RHOP
 
    TNOW = CURRENT_TIME()
-   CALL POINT_TO_MESH(NM)
+   
+   ! [修改] 在一开始将 PURE_INFER_T 赋初值为 0，其他非 Rank 0 节点直接返回 0
+   PURE_INFER_T = 0.0_EB
 
-   ! 计算当前网格内部单元总数 (仅限真实物理网格，不含 Ghost Cells)
-   N_POINTS = IBAR * JBAR * KBAR
-   C_CHANNELS = 6  ! 特征数: X, Y, Z, RHS_total(PRHS), RHO(RHOS), H_old(HS)
-   BATCH_SIZE = 1  ! 推理时固定 Batch = 1
-
-   ! 动态内存分配
-   IF (N_POINTS > ALLOCATED_POINTS) THEN
-      IF (ALLOCATED(ML_IN_FP32))  DEALLOCATE(ML_IN_FP32)
-      IF (ALLOCATED(ML_OUT_FP32)) DEALLOCATE(ML_OUT_FP32)
-      ALLOCATE(ML_IN_FP32(C_CHANNELS * N_POINTS))
-      ALLOCATE(ML_OUT_FP32(N_POINTS))
-      ALLOCATED_POINTS = N_POINTS
+   IF (ML_INIT_FAILED .OR. .NOT. ML_ACTIVE) THEN
+      T_USED(5) = T_USED(5) + CURRENT_TIME() - TNOW
+      RETURN
    ENDIF
 
-   ! 获取打包前基准时间 (开始 Pack 计时)
-   T0 = CURRENT_TIME()
+   ! ======================================================================
+   ! 1. 内存映射：计算偏移量
+   ! ======================================================================
+   IF (.NOT. INIT_DONE) THEN
+      ALLOCATE(MESH_OFFSET(NMESHES))
+      TOTAL_GLOBAL_POINTS = 0
+      
+      DO NM = 1, NMESHES
+         MESH_OFFSET(NM) = TOTAL_GLOBAL_POINTS
+         TOTAL_GLOBAL_POINTS = TOTAL_GLOBAL_POINTS + &
+              MESHES(NM)%IBAR * MESHES(NM)%JBAR * MESHES(NM)%KBAR
+      ENDDO
+
+      ALLOCATE(GLOBAL_ML_IN (6 * TOTAL_GLOBAL_POINTS))
+      ALLOCATE(GLOBAL_ML_OUT(    TOTAL_GLOBAL_POINTS))
+      ALLOCATE(GLOBAL_COORDS(3 * TOTAL_GLOBAL_POINTS))
+      GLOBAL_ML_IN  = 0._C_FLOAT
+      GLOBAL_ML_OUT = 0._C_FLOAT
+      GLOBAL_COORDS = 0._C_FLOAT
+
+      INIT_DONE = .TRUE.
+   ENDIF
 
    ! ======================================================================
-   ! 3D 展平打包：点优先布局，FP64 -> FP32 精度降级
-   ! C-Order: K 为最外层, J 为中层, I 为最内层
+   ! 2. Trunk 初始化：[优化] 仅 Rank 0 初始化并生成 Trunk 缓存
    ! ======================================================================
-   DO KK = 1, KBAR
-      DO JJ = 1, JBAR
-         DO II = 1, IBAR
-            ! 计算 1D 偏移索引 (从 0 开始以对齐 C 语言机制)
-            IDX = (KK - 1) * IBAR * JBAR + (JJ - 1) * IBAR + (II - 1)
+   IF (.NOT. TRUNK_DONE) THEN
+      GLOBAL_COORDS = 0._C_FLOAT
+      
+      DO NM = LOWER_MESH_INDEX, UPPER_MESH_INDEX
+         DO KK = 1, MESHES(NM)%KBAR
+            DO JJ = 1, MESHES(NM)%JBAR
+               DO II = 1, MESHES(NM)%IBAR
+                  GLOBAL_IDX = MESH_OFFSET(NM) + (KK-1)*MESHES(NM)%JBAR*MESHES(NM)%IBAR + (JJ-1)*MESHES(NM)%IBAR + (II-1)
+                  GLOBAL_COORDS(GLOBAL_IDX*3 + 1) = REAL(MESHES(NM)%XC(II), C_FLOAT)
+                  GLOBAL_COORDS(GLOBAL_IDX*3 + 2) = REAL(MESHES(NM)%YC(JJ), C_FLOAT)
+                  GLOBAL_COORDS(GLOBAL_IDX*3 + 3) = REAL(MESHES(NM)%ZC(KK), C_FLOAT)
+               ENDDO
+            ENDDO
+         ENDDO
+      ENDDO
 
-            ! 点优先写入: 每个点的 6 个特征连续存放，并使用 REAL(..., C_FLOAT) 转换精度
-            ML_IN_FP32(IDX * 6 + 1) = REAL(XC(II), C_FLOAT)          ! 通道 0: X
-            ML_IN_FP32(IDX * 6 + 2) = REAL(YC(JJ), C_FLOAT)          ! 通道 1: Y
-            ML_IN_FP32(IDX * 6 + 3) = REAL(ZC(KK), C_FLOAT)          ! 通道 2: Z
-            ML_IN_FP32(IDX * 6 + 4) = REAL(PRHS(II,JJ,KK), C_FLOAT)  ! 通道 3: RHS_total
-            ML_IN_FP32(IDX * 6 + 5) = REAL(RHOS(II,JJ,KK), C_FLOAT)  ! 通道 4: 校正步密度 RHOS
-            ML_IN_FP32(IDX * 6 + 6) = REAL(HS(II,JJ,KK), C_FLOAT)    ! 通道 5: 校正步 H_old (HS)
+#ifdef MPI
+      IF (N_MPI_PROCESSES > 1) THEN
+         CALL MPI_ALLREDUCE(MPI_IN_PLACE, GLOBAL_COORDS, 3*TOTAL_GLOBAL_POINTS, MPI_REAL, MPI_SUM, MPI_COMM_WORLD, IERR)
+      ENDIF
+#endif
+
+      STATUS_ML = 0_C_INT
+      IF (MY_RANK == 0) THEN
+#ifdef _OPENMP
+         N_THREADS_ML = INT(MAX(1, OMP_GET_MAX_THREADS()), C_INT)
+#else
+         N_THREADS_ML = 1_C_INT
+#endif
+         STATUS_ML = InitMeshTrunk(MY_RANK, GLOBAL_COORDS, TOTAL_GLOBAL_POINTS, N_THREADS_ML)
+      ENDIF
+
+#ifdef MPI
+      IF (N_MPI_PROCESSES > 1) THEN
+         CALL MPI_BCAST(STATUS_ML, 1, MPI_INTEGER, 0, MPI_COMM_WORLD, IERR)
+      ENDIF
+#endif
+
+      IF (STATUS_ML /= 0) THEN
+         ML_INIT_FAILED = .TRUE.
+         ML_ACTIVE      = .FALSE.
+         T_USED(5) = T_USED(5) + CURRENT_TIME() - TNOW
+         RETURN
+      ENDIF
+      TRUNK_DONE = .TRUE.
+   ENDIF
+
+   ! ======================================================================
+   ! 3. 数据打包
+   ! ======================================================================
+   GLOBAL_ML_IN = 0._C_FLOAT
+   
+   DO NM = LOWER_MESH_INDEX, UPPER_MESH_INDEX
+      IF (PREDICTOR) THEN
+         HP   => MESHES(NM)%H
+         RHOP => MESHES(NM)%RHO
+      ELSE
+         HP   => MESHES(NM)%HS
+         RHOP => MESHES(NM)%RHOS
+      ENDIF
+
+      DO KK = 1, MESHES(NM)%KBAR
+         DO JJ = 1, MESHES(NM)%JBAR
+            DO II = 1, MESHES(NM)%IBAR
+               GLOBAL_IDX = MESH_OFFSET(NM) + (KK-1)*MESHES(NM)%JBAR*MESHES(NM)%IBAR + (JJ-1)*MESHES(NM)%IBAR + (II-1)
+               
+               GLOBAL_ML_IN(GLOBAL_IDX*6 + 1) = REAL(MESHES(NM)%XC(II),       C_FLOAT)
+               GLOBAL_ML_IN(GLOBAL_IDX*6 + 2) = REAL(MESHES(NM)%YC(JJ),       C_FLOAT)
+               GLOBAL_ML_IN(GLOBAL_IDX*6 + 3) = REAL(MESHES(NM)%ZC(KK),       C_FLOAT)
+               GLOBAL_ML_IN(GLOBAL_IDX*6 + 4) = REAL(MESHES(NM)%PRHS(II,JJ,KK), C_FLOAT)
+               GLOBAL_ML_IN(GLOBAL_IDX*6 + 5) = REAL(RHOP(II,JJ,KK),          C_FLOAT)
+               GLOBAL_ML_IN(GLOBAL_IDX*6 + 6) = REAL(HP(II,JJ,KK),            C_FLOAT)
+            ENDDO
          ENDDO
       ENDDO
    ENDDO
 
-   ! 记录打包结束/推理开始时间
-   T1 = CURRENT_TIME()
+#ifdef MPI
+   ! 4.7MB 的 MPI ALLREDUCE，不计入纯推理时间
+   IF (N_MPI_PROCESSES > 1) THEN
+      CALL MPI_ALLREDUCE(MPI_IN_PLACE, GLOBAL_ML_IN, 6*TOTAL_GLOBAL_POINTS, MPI_REAL, MPI_SUM, MPI_COMM_WORLD, IERR)
+   ENDIF
+#endif
 
    ! ======================================================================
-   ! 调用 C++ ONNX 桥接进行推理 (纯 FP32 计算，带宽减半)
+   ! 4. 仅 Rank 0 运行，彻底剥离通信时间
    ! ======================================================================
-   CALL NNpredict(ML_IN_FP32, ML_OUT_FP32, BATCH_SIZE, C_CHANNELS, N_POINTS, MY_RANK)
-
-   ! 记录推理结束/解包开始时间
-   T2 = CURRENT_TIME()
-
-   ! ======================================================================
-   ! 将预测结果反向映射回 FDS 三维矩阵 HS
-   ! FP32 -> FP64 精度恢复
-   ! ======================================================================
-   DO KK = 1, KBAR
-      DO JJ = 1, JBAR
-         DO II = 1, IBAR
-            IDX = (KK - 1) * IBAR * JBAR + (JJ - 1) * IBAR + (II - 1)
-            HS(II,JJ,KK) = REAL(ML_OUT_FP32(IDX + 1), EB)
-         ENDDO
-      ENDDO
-   ENDDO
-
-   ! ======================================================================
-   ! 施加 Ghost Cells 边界条件 (保持 FDS 物理一致性)
-   ! ======================================================================
-   ! X 方向 (左右界面)
-   DO KK = 1, KBAR
-      DO JJ = 1, JBAR
-         IF (LBC==3 .OR. LBC==4)              HS(0,JJ,KK)    = HS(1,JJ,KK)      - DXI*BXS(JJ,KK)
-         IF (LBC==3 .OR. LBC==2 .OR. LBC==6)  HS(IBP1,JJ,KK) = HS(IBAR,JJ,KK)   + DXI*BXF(JJ,KK)
-         IF (LBC==1 .OR. LBC==2)              HS(0,JJ,KK)    =-HS(1,JJ,KK)      + 2._EB*BXS(JJ,KK)
-         IF (LBC==1 .OR. LBC==4 .OR. LBC==5)  HS(IBP1,JJ,KK) =-HS(IBAR,JJ,KK)   + 2._EB*BXF(JJ,KK)
-         IF (LBC==5 .OR. LBC==6)              HS(0,JJ,KK)    = HS(1,JJ,KK)
-         IF (LBC==0) THEN
-            HS(0,JJ,KK)    = HS(IBAR,JJ,KK)
-            HS(IBP1,JJ,KK) = HS(1,JJ,KK)
-         ENDIF
-      ENDDO
-   ENDDO
-
-   ! Y 方向 (前后界面)
-   DO KK = 1, KBAR
-      DO II = 1, IBAR
-         IF (MBC==3 .OR. MBC==4)              HS(II,0,KK)    = HS(II,1,KK)      - DETA*BYS(II,KK)
-         IF (MBC==3 .OR. MBC==2 .OR. MBC==6)  HS(II,JBP1,KK) = HS(II,JBAR,KK)   + DETA*BYF(II,KK)
-         IF (MBC==1 .OR. MBC==2)              HS(II,0,KK)    =-HS(II,1,KK)      + 2._EB*BYS(II,KK)
-         IF (MBC==1 .OR. MBC==4 .OR. MBC==5)  HS(II,JBP1,KK) =-HS(II,JBAR,KK)   + 2._EB*BYF(II,KK)
-         IF (MBC==5 .OR. MBC==6)              HS(II,0,KK)    = HS(II,1,KK)
-         IF (MBC==0) THEN
-            HS(II,0,KK)    = HS(II,JBAR,KK)
-            HS(II,JBP1,KK) = HS(II,1,KK)
-         ENDIF
-      ENDDO
-   ENDDO
-
-   ! Z 方向 (上下界面)
-   DO JJ = 1, JBAR
-      DO II = 1, IBAR
-         IF (NBC==3 .OR. NBC==4)              HS(II,JJ,0)    = HS(II,JJ,1)      - DZETA*BZS(II,JJ)
-         IF (NBC==3 .OR. NBC==2)              HS(II,JJ,KBP1) = HS(II,JJ,KBAR)   + DZETA*BZF(II,JJ)
-         IF (NBC==1 .OR. NBC==2)              HS(II,JJ,0)    =-HS(II,JJ,1)      + 2._EB*BZS(II,JJ)
-         IF (NBC==1 .OR. NBC==4)              HS(II,JJ,KBP1) =-HS(II,JJ,KBAR)   + 2._EB*BZF(II,JJ)
-         IF (NBC==0) THEN
-            HS(II,JJ,0)    = HS(II,JJ,KBAR)
-            HS(II,JJ,KBP1) = HS(II,JJ,1)
-         ENDIF
-      ENDDO
-   ENDDO
-
-   ! 记录解包结束时间
-   T3 = CURRENT_TIME()
-
-   ! ======================================================================
-   ! 计算并输出本网格单次调用的细分耗时
-   ! ======================================================================
-   T_PACK   = T1 - T0
-   T_INFER  = T2 - T1
-   T_UNPACK = T3 - T2
-
+   STATUS_ML = 0_C_INT
    IF (MY_RANK == 0) THEN
-      WRITE(*,'(A,I0,A,ES12.5,A,ES12.5,A,ES12.5,A)') &
-          ' >>> [ML-Timer] Mesh: ', NM, &
-          ' | Pack: ', T_PACK, ' s | Infer: ', T_INFER, ' s | Unpack: ', T_UNPACK, ' s'
+      T_START_NN = CURRENT_TIME()
+      STATUS_ML = NNpredict(MY_RANK, GLOBAL_ML_IN, GLOBAL_ML_OUT, TOTAL_GLOBAL_POINTS)
+      PURE_INFER_T = CURRENT_TIME() - T_START_NN
    ENDIF
 
-   ! 计时器收尾 (总计入 FDS 内部 POISSON_SOLVER 时间池)
+#ifdef MPI
+   IF (N_MPI_PROCESSES > 1) THEN
+      CALL MPI_BCAST(STATUS_ML, 1, MPI_INTEGER, 0, MPI_COMM_WORLD, IERR)
+      ! [修改] 彻底删除对 PURE_INFER_T 的 MPI_BCAST！
+      ! Rank 0 在上面已经自行得到了正确的纯推理时间。其他从节点在 Barrier 的死等时间绝不能混入。
+   ENDIF
+#endif
+
+   IF (STATUS_ML /= 0) THEN
+      ML_INIT_FAILED = .TRUE.
+      ML_ACTIVE      = .FALSE.
+      T_USED(5) = T_USED(5) + CURRENT_TIME() - TNOW
+      RETURN
+   ENDIF
+
+#ifdef MPI
+   ! 广播 19.6 万点计算结果，同样不计入纯推理时间
+   IF (N_MPI_PROCESSES > 1) THEN
+      CALL MPI_BCAST(GLOBAL_ML_OUT, TOTAL_GLOBAL_POINTS, MPI_REAL, 0, MPI_COMM_WORLD, IERR)
+   ENDIF
+#endif
+
+   ! ======================================================================
+   ! 5. 局部解包与边界对齐 
+   ! ======================================================================
+   DO NM = LOWER_MESH_INDEX, UPPER_MESH_INDEX
+      IF (PREDICTOR) THEN
+         HP => MESHES(NM)%H
+      ELSE
+         HP => MESHES(NM)%HS
+      ENDIF
+
+      DO KK = 1, MESHES(NM)%KBAR
+         DO JJ = 1, MESHES(NM)%JBAR
+            DO II = 1, MESHES(NM)%IBAR
+               GLOBAL_IDX = MESH_OFFSET(NM) + (KK-1)*MESHES(NM)%JBAR*MESHES(NM)%IBAR + (JJ-1)*MESHES(NM)%IBAR + (II-1)
+               HP(II,JJ,KK) = REAL(GLOBAL_ML_OUT(GLOBAL_IDX + 1), EB)
+            ENDDO
+         ENDDO
+      ENDDO
+
+      DXI   = 1.0_EB / MESHES(NM)%DX(1)
+      DETA  = 1.0_EB / MESHES(NM)%DY(1)
+      DZETA = 1.0_EB / MESHES(NM)%DZ(1)
+
+      DO KK = 1, MESHES(NM)%KBAR
+         DO JJ = 1, MESHES(NM)%JBAR
+            IF (MESHES(NM)%LBC==3 .OR. MESHES(NM)%LBC==4) HP(0,JJ,KK) = HP(1,JJ,KK) - DXI * MESHES(NM)%BXS(JJ,KK)
+            IF (MESHES(NM)%LBC==3 .OR. MESHES(NM)%LBC==2 .OR. MESHES(NM)%LBC==6) HP(MESHES(NM)%IBP1,JJ,KK) = HP(MESHES(NM)%IBAR,JJ,KK) + DXI * MESHES(NM)%BXF(JJ,KK)
+            IF (MESHES(NM)%LBC==1 .OR. MESHES(NM)%LBC==2) HP(0,JJ,KK) = -HP(1,JJ,KK) + 2._EB * MESHES(NM)%BXS(JJ,KK)
+            IF (MESHES(NM)%LBC==1 .OR. MESHES(NM)%LBC==4 .OR. MESHES(NM)%LBC==5) HP(MESHES(NM)%IBP1,JJ,KK) = -HP(MESHES(NM)%IBAR,JJ,KK) + 2._EB * MESHES(NM)%BXF(JJ,KK)
+            IF (MESHES(NM)%LBC==5 .OR. MESHES(NM)%LBC==6) HP(0,JJ,KK) = HP(1,JJ,KK)
+            IF (MESHES(NM)%LBC==0) THEN
+               HP(0,JJ,KK)                = HP(MESHES(NM)%IBAR,JJ,KK)
+               HP(MESHES(NM)%IBP1,JJ,KK) = HP(1,JJ,KK)
+            ENDIF
+         ENDDO
+      ENDDO
+
+      DO KK = 1, MESHES(NM)%KBAR
+         DO II = 1, MESHES(NM)%IBAR
+            IF (MESHES(NM)%MBC==3 .OR. MESHES(NM)%MBC==4) HP(II,0,KK) = HP(II,1,KK) - DETA * MESHES(NM)%BYS(II,KK)
+            IF (MESHES(NM)%MBC==3 .OR. MESHES(NM)%MBC==2 .OR. MESHES(NM)%MBC==6) HP(II,MESHES(NM)%JBP1,KK) = HP(II,MESHES(NM)%JBAR,KK) + DETA * MESHES(NM)%BYF(II,KK)
+            IF (MESHES(NM)%MBC==1 .OR. MESHES(NM)%MBC==2) HP(II,0,KK) = -HP(II,1,KK) + 2._EB * MESHES(NM)%BYS(II,KK)
+            IF (MESHES(NM)%MBC==1 .OR. MESHES(NM)%MBC==4 .OR. MESHES(NM)%MBC==5) HP(II,MESHES(NM)%JBP1,KK) = -HP(II,MESHES(NM)%JBAR,KK) + 2._EB * MESHES(NM)%BYF(II,KK)
+            IF (MESHES(NM)%MBC==5 .OR. MESHES(NM)%MBC==6) HP(II,0,KK) = HP(II,1,KK)
+            IF (MESHES(NM)%MBC==0) THEN
+               HP(II,0,KK)                = HP(II,MESHES(NM)%JBAR,KK)
+               HP(II,MESHES(NM)%JBP1,KK) = HP(II,1,KK)
+            ENDIF
+         ENDDO
+      ENDDO
+
+      DO JJ = 1, MESHES(NM)%JBAR
+         DO II = 1, MESHES(NM)%IBAR
+            IF (MESHES(NM)%NBC==3 .OR. MESHES(NM)%NBC==4) HP(II,JJ,0) = HP(II,JJ,1) - DZETA * MESHES(NM)%BZS(II,JJ)
+            IF (MESHES(NM)%NBC==3 .OR. MESHES(NM)%NBC==2) HP(II,JJ,MESHES(NM)%KBP1) = HP(II,JJ,MESHES(NM)%KBAR) + DZETA * MESHES(NM)%BZF(II,JJ)
+            IF (MESHES(NM)%NBC==1 .OR. MESHES(NM)%NBC==2) HP(II,JJ,0) = -HP(II,JJ,1) + 2._EB * MESHES(NM)%BZS(II,JJ)
+            IF (MESHES(NM)%NBC==1 .OR. MESHES(NM)%NBC==4) HP(II,JJ,MESHES(NM)%KBP1) = -HP(II,JJ,MESHES(NM)%KBAR) + 2._EB * MESHES(NM)%BZF(II,JJ)
+            IF (MESHES(NM)%NBC==0) THEN
+               HP(II,JJ,0)                = HP(II,JJ,MESHES(NM)%KBAR)
+               HP(II,JJ,MESHES(NM)%KBP1) = HP(II,JJ,1)
+            ENDIF
+         ENDDO
+      ENDDO
+   ENDDO
+
    T_USED(5) = T_USED(5) + CURRENT_TIME() - TNOW
 
-END SUBROUTINE PRESSURE_SOLVER_NNet
+END SUBROUTINE PRESSURE_SOLVER_NNet_GLOBAL
 
 
 SUBROUTINE PRESSURE_SOLVER_FFT(NM)
