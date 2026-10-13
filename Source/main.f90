@@ -1480,8 +1480,8 @@ REAL(EB) :: TOTAL_T_POISSON, AVERAGE_T_POISSON
 INTEGER  :: COUNT_POISSON
 REAL(EB) :: AVG_STEP_TOTAL, AVG_STEP_CORR, AVG_STAGE_TOTAL, AVG_STAGE_CORR
 
-INTEGER, PARAMETER :: FREQ_STEP  = 200    ! 步级输出频率
-INTEGER, PARAMETER :: FREQ_STAGE = 1000   ! 阶段级输出频率
+INTEGER, PARAMETER :: FREQ_STEP  = 40    ! 步级输出频率
+INTEGER, PARAMETER :: FREQ_STAGE = 100   ! 阶段级输出频率
 
 INTEGER :: STAT_UNIT_STEP, STAT_UNIT_STAGE
 LOGICAL, SAVE :: STAT_CSV_STEP_INIT = .FALSE. 
@@ -1506,23 +1506,34 @@ REAL(EB), SAVE :: ALL_TOTAL_T_POISSON = 0.0_EB
 INTEGER,  SAVE :: ALL_COUNT_POISSON = 0            
 
 ! ==============================================================
-! 机器学习 (CNN/PINN) 12参数数据导出变量
+! 机器学习 (CNN/PINN) 数据导出变量 (19列统一特征 + 多值边界掩码 + 真实边界值 BC_VAL)
 ! ==============================================================
 INTEGER, PARAMETER :: FREQ_ML_EXPORT = 100  ! ===> 设定每隔多少个迭代步输出一次训练数据 <===
 
 LOGICAL :: WRITE_DATA
-INTEGER :: II, JJ, KK, IO_UNIT
-CHARACTER(255) :: CSV_FILE
+INTEGER :: II, JJ, KK, IO_UNIT, IO_UNIT_BC, IC, IW, IIG, JJG, KKG, IOR, NOM
+CHARACTER(255) :: CSV_FILE, CSV_FILE_BC
+CHARACTER(5) :: STAGE_NAME
 TYPE(MESH_TYPE), POINTER :: M
-REAL(EB) :: U_VAL, V_VAL, W_VAL, RHO_VAL, PNEW_VAL
+TYPE(WALL_TYPE), POINTER :: WC
+TYPE(EXTERNAL_WALL_TYPE), POINTER :: EWC
+TYPE(BOUNDARY_COORD_TYPE), POINTER :: BC
 
-! 内存极简优化：只存会被泊松求解器覆写的数据
+! 特征提取标量
+REAL(EB) :: U_VAL, V_VAL, W_VAL, RHO_VAL, PNEW_VAL 
+REAL(EB) :: RHS_TOTAL_VAL, RHS_KINEM_VAL, RHS_THERM_VAL, BND_TYPE, BC_VAL
+
+! 补齐循环变量，彻底解决 error #6404
+INTEGER :: I, J, K
+
+! 【数据缓冲区】确保内存生命周期内只分配一次，绝不释放
 TYPE :: EXPORT_DATA_TYPE
-   REAL(EB), ALLOCATABLE, DIMENSION(:,:,:) :: RHS, POLD
+   REAL(EB), ALLOCATABLE, DIMENSION(:,:,:) :: RHS, POLD, BC_VAL_ARR
+   REAL(EB), ALLOCATABLE, DIMENSION(:,:) :: BXS, BXF, BYS, BYF, BZS, BZF
 END TYPE EXPORT_DATA_TYPE
-TYPE(EXPORT_DATA_TYPE), ALLOCATABLE, DIMENSION(:) :: EXPORT_DATA
+TYPE(EXPORT_DATA_TYPE), ALLOCATABLE, DIMENSION(:), SAVE :: EXPORT_DATA
+LOGICAL, SAVE :: IS_ML_ALLOCATED = .FALSE.
 ! ==============================================================
-
 
 PRESSURE_ITERATIONS = 0
 
@@ -1550,32 +1561,60 @@ ENDIF
 TOTAL_T_POISSON = 0.0_EB
 COUNT_POISSON = 0
 
-
 ! ==============================================================
 ! [ML 数据切片模块] - 步骤 1：触发器与保存旧压力
 ! ==============================================================
 WRITE_DATA = .FALSE.
-IF (CORRECTOR .AND. MOD(ICYC, FREQ_ML_EXPORT) == 0) THEN
+! 不限制 CORRECTOR，只要满足步数条件就触发，允许预测步和校正步双输出
+IF (MOD(ICYC, FREQ_ML_EXPORT) == 0) THEN
    WRITE_DATA = .TRUE. 
-   IF (MY_RANK==0) WRITE(*,*) ' >>> Generating ML Training Data at Time=', T, 's, ICYC=', ICYC  
+   IF (MY_RANK==0) THEN
+      IF (PREDICTOR) THEN
+         WRITE(*,*) ' >>> Generating ML Training Data (19 Features, BND_TYPE + BC_VAL) at Time=', T, 's, ICYC=', ICYC, ' [PRED]'
+      ELSE
+         WRITE(*,*) ' >>> Generating ML Training Data (19 Features, BND_TYPE + BC_VAL) at Time=', T, 's, ICYC=', ICYC, ' [CORR]'
+      ENDIF
+   ENDIF
 ENDIF
 
 IF (WRITE_DATA) THEN
-   IF (.NOT. ALLOCATED(EXPORT_DATA)) ALLOCATE(EXPORT_DATA(NMESHES))
-   DO NM = LOWER_MESH_INDEX, UPPER_MESH_INDEX
-      M => MESHES(NM)
-      IF (ALLOCATED(EXPORT_DATA(NM)%RHS))  DEALLOCATE(EXPORT_DATA(NM)%RHS)
-      IF (ALLOCATED(EXPORT_DATA(NM)%POLD)) DEALLOCATE(EXPORT_DATA(NM)%POLD)
-      
-      ALLOCATE(EXPORT_DATA(NM)%RHS(M%IBAR, M%JBAR, M%KBAR))
-      ALLOCATE(EXPORT_DATA(NM)%POLD(M%IBAR, M%JBAR, M%KBAR))
-      
-      IF (PREDICTOR) THEN
-         EXPORT_DATA(NM)%POLD = M%H(1:M%IBAR,  1:M%JBAR, 1:M%KBAR)
-      ELSE
-         EXPORT_DATA(NM)%POLD = M%HS(1:M%IBAR, 1:M%JBAR, 1:M%KBAR)
+   ! 一次性安全分配内存 (根据 MPI 进程控制的网格分配)
+   IF (.NOT. IS_ML_ALLOCATED) THEN
+      IF (UPPER_MESH_INDEX >= LOWER_MESH_INDEX) THEN
+         ALLOCATE(EXPORT_DATA(LOWER_MESH_INDEX : UPPER_MESH_INDEX))
+         DO NM = LOWER_MESH_INDEX, UPPER_MESH_INDEX
+            M => MESHES(NM)
+            ALLOCATE(EXPORT_DATA(NM)%RHS(0:M%IBP1, 0:M%JBP1, 0:M%KBP1))
+            ALLOCATE(EXPORT_DATA(NM)%POLD(0:M%IBP1, 0:M%JBP1, 0:M%KBP1))
+            ALLOCATE(EXPORT_DATA(NM)%BC_VAL_ARR(0:M%IBP1, 0:M%JBP1, 0:M%KBP1))
+            EXPORT_DATA(NM)%RHS  = 0.0_EB
+            EXPORT_DATA(NM)%POLD = 0.0_EB
+            EXPORT_DATA(NM)%BC_VAL_ARR = 0.0_EB
+            
+            ALLOCATE(EXPORT_DATA(NM)%BXS(1:M%JBAR, 1:M%KBAR)) ; EXPORT_DATA(NM)%BXS = 0.0_EB
+            ALLOCATE(EXPORT_DATA(NM)%BXF(1:M%JBAR, 1:M%KBAR)) ; EXPORT_DATA(NM)%BXF = 0.0_EB
+            ALLOCATE(EXPORT_DATA(NM)%BYS(1:M%IBAR, 1:M%KBAR)) ; EXPORT_DATA(NM)%BYS = 0.0_EB
+            ALLOCATE(EXPORT_DATA(NM)%BYF(1:M%IBAR, 1:M%KBAR)) ; EXPORT_DATA(NM)%BYF = 0.0_EB
+            ALLOCATE(EXPORT_DATA(NM)%BZS(1:M%IBAR, 1:M%JBAR)) ; EXPORT_DATA(NM)%BZS = 0.0_EB
+            ALLOCATE(EXPORT_DATA(NM)%BZF(1:M%IBAR, 1:M%JBAR)) ; EXPORT_DATA(NM)%BZF = 0.0_EB
+         ENDDO
       ENDIF
-   ENDDO
+      IS_ML_ALLOCATED = .TRUE.
+   ENDIF
+
+   ! 保存流场旧压力场 (完整提取 0:IBP1，自动包含 MPI 邻居传来的狄利克雷边界)
+   IF (UPPER_MESH_INDEX >= LOWER_MESH_INDEX) THEN
+      DO NM = LOWER_MESH_INDEX, UPPER_MESH_INDEX
+         M => MESHES(NM)
+         ! 每次进入都清零 BC_VAL 数组
+         EXPORT_DATA(NM)%BC_VAL_ARR = 0.0_EB
+         IF (PREDICTOR) THEN
+            EXPORT_DATA(NM)%POLD(0:M%IBP1, 0:M%JBP1, 0:M%KBP1) = M%H(0:M%IBP1, 0:M%JBP1, 0:M%KBP1)
+         ELSE
+            EXPORT_DATA(NM)%POLD(0:M%IBP1, 0:M%JBP1, 0:M%KBP1) = M%HS(0:M%IBP1, 0:M%JBP1, 0:M%KBP1)
+         ENDIF
+      ENDDO
+   ENDIF
 ENDIF
 ! ==============================================================
 
@@ -1603,11 +1642,46 @@ PRESSURE_ITERATION_LOOP: DO
       CALL PRESSURE_SOLVER_COMPUTE_RHS(T,DT,NM)
       
       ! ==============================================================
-      ! [ML 数据切片模块] - 步骤 2：不断覆写抓取最新一轮的 RHS
+      ! [ML 数据切片模块] - 步骤 2：抓取最新一轮的 RHS 和 BC_VAL
       ! ==============================================================
       IF (WRITE_DATA) THEN
          M => MESHES(NM)
+         ! 1. 抓取流体内部 RHS 源项
          EXPORT_DATA(NM)%RHS(1:M%IBAR, 1:M%JBAR, 1:M%KBAR) = M%PRHS(1:M%IBAR, 1:M%JBAR, 1:M%KBAR)
+         
+         ! 2. 同步存储 2D 边界面值，供独立 _bc.csv 使用
+         EXPORT_DATA(NM)%BXS(1:M%JBAR, 1:M%KBAR) = M%BXS(1:M%JBAR, 1:M%KBAR)
+         EXPORT_DATA(NM)%BXF(1:M%JBAR, 1:M%KBAR) = M%BXF(1:M%JBAR, 1:M%KBAR)
+         EXPORT_DATA(NM)%BYS(1:M%IBAR, 1:M%KBAR) = M%BYS(1:M%IBAR, 1:M%KBAR)
+         EXPORT_DATA(NM)%BYF(1:M%IBAR, 1:M%KBAR) = M%BYF(1:M%IBAR, 1:M%KBAR)
+         EXPORT_DATA(NM)%BZS(1:M%IBAR, 1:M%JBAR) = M%BZS(1:M%IBAR, 1:M%JBAR)
+         EXPORT_DATA(NM)%BZF(1:M%IBAR, 1:M%JBAR) = M%BZF(1:M%IBAR, 1:M%JBAR)
+         
+         ! 3. 将边界面值存入对应的 3D 掩码位置 BC_VAL_ARR
+         ! 仅遍历外部边界（FDS 的 BXS 等 2D 数组仅服务于计算域边界和多网格接口）
+         DO IW = 1, M%N_EXTERNAL_WALL_CELLS
+            WC => M%WALL(IW)
+            BC => M%BOUNDARY_COORD(WC%BC_INDEX)
+            
+            II  = BC%II
+            JJ  = BC%JJ
+            KK  = BC%KK
+            IOR = BC%IOR
+            
+            IF (II >= 0 .AND. II <= M%IBP1 .AND. &
+                JJ >= 0 .AND. JJ <= M%JBP1 .AND. &
+                KK >= 0 .AND. KK <= M%KBP1) THEN
+                
+                SELECT CASE(IOR)
+                   CASE( 1) ; EXPORT_DATA(NM)%BC_VAL_ARR(II,JJ,KK) = M%BXS(JJ,KK)
+                   CASE(-1) ; EXPORT_DATA(NM)%BC_VAL_ARR(II,JJ,KK) = M%BXF(JJ,KK)
+                   CASE( 2) ; EXPORT_DATA(NM)%BC_VAL_ARR(II,JJ,KK) = M%BYS(II,KK)
+                   CASE(-2) ; EXPORT_DATA(NM)%BC_VAL_ARR(II,JJ,KK) = M%BYF(II,KK)
+                   CASE( 3) ; EXPORT_DATA(NM)%BC_VAL_ARR(II,JJ,KK) = M%BZS(II,JJ)
+                   CASE(-3) ; EXPORT_DATA(NM)%BC_VAL_ARR(II,JJ,KK) = M%BZF(II,JJ)
+                END SELECT
+            ENDIF
+         ENDDO
       ENDIF
    ENDDO
 
@@ -1707,59 +1781,151 @@ PRESSURE_ITERATION_LOOP: DO
 ENDDO PRESSURE_ITERATION_LOOP
 
 ! ==============================================================
-! [ML 数据切片模块] - 步骤 3：直接读取各类标量场，写出 12 维特征
+! [ML 数据切片模块] - 步骤 3：多核独立输出，包含 BND_TYPE 和 BC_VAL
 ! ==============================================================
 IF (WRITE_DATA) THEN
-   DO NM = LOWER_MESH_INDEX, UPPER_MESH_INDEX
-      M => MESHES(NM)
-      CSV_FILE = ''
-      IERR = 0
+   ! 仅当该 MPI 进程分配了网格时才执行文件写入
+   IF (UPPER_MESH_INDEX >= LOWER_MESH_INDEX) THEN
+      
+      ! 区分文件名后缀
+      IF (PREDICTOR) THEN
+         STAGE_NAME = '_pred'
+      ELSE
+         STAGE_NAME = '_corr'
+      ENDIF
 
-      WRITE(CSV_FILE, '(A,A,I0,A,I0,A)') TRIM(CHID), '_ML_m', NM, '_step', ICYC, '.csv'
+      DO NM = LOWER_MESH_INDEX, UPPER_MESH_INDEX
+         M => MESHES(NM)
+         CSV_FILE = ''
+         IERR = 0
 
-      IO_UNIT = -1
-      OPEN(NEWUNIT=IO_UNIT, FILE=TRIM(CSV_FILE), STATUS='REPLACE', FORM='FORMATTED', IOSTAT=IERR)
-      IF (IERR == 0) THEN
-         ! Time + 坐标(3) + 速度(3) + RHS(1) + T(1) + RHO(1) + P_old(1) + P_new(1) = 12
-         WRITE(IO_UNIT, '(A)') 'Time,X,Y,Z,U,V,W,RHS,T,RHO,H_old,H_new'
-         
-         DO KK = 1, M%KBAR
-            DO JJ = 1, M%JBAR
-               DO II = 1, M%IBAR
-                  IF (M%CELL(M%CELL_INDEX(II,JJ,KK))%SOLID) CYCLE
-                  
-                  ! 根据当前的步类型（预测/校正），获取物理常数数组
-                  IF (PREDICTOR) THEN
-                     U_VAL    = M%U(II,JJ,KK)
-                     V_VAL    = M%V(II,JJ,KK)
-                     W_VAL    = M%W(II,JJ,KK)
-                     RHO_VAL  = M%RHO(II,JJ,KK)
-                     PNEW_VAL = M%H(II,JJ,KK)
-                  ELSE
-                     U_VAL    = M%US(II,JJ,KK)
-                     V_VAL    = M%VS(II,JJ,KK)
-                     W_VAL    = M%WS(II,JJ,KK)
-                     RHO_VAL  = M%RHOS(II,JJ,KK)
-                     PNEW_VAL = M%HS(II,JJ,KK)
-                  ENDIF
-                  
-                  ! 格式化写入：12 个科学计数法，逗号分隔，保持列对齐
-                  WRITE(IO_UNIT, '(12(ES15.7,:,","))') &
-                     T, M%XC(II), M%YC(JJ), M%ZC(KK), &
-                     U_VAL, V_VAL, W_VAL, &
-                     EXPORT_DATA(NM)%RHS(II,JJ,KK), M%TMP(II,JJ,KK), &
-                     RHO_VAL, EXPORT_DATA(NM)%POLD(II,JJ,KK), PNEW_VAL
+         WRITE(CSV_FILE, '(A,A,I0,A,I0,A,A)') TRIM(CHID), '_ML_m', NM, '_step', ICYC, TRIM(STAGE_NAME), '.csv'
+
+         IO_UNIT = 900 + NM
+         OPEN(UNIT=IO_UNIT, FILE=TRIM(CSV_FILE), STATUS='REPLACE', FORM='FORMATTED', IOSTAT=IERR)
+         IF (IERR == 0) THEN
+            ! >>> 统一表头 (19列)：包含 BND_TYPE 和具体的 BC_VAL <<<
+            WRITE(IO_UNIT, '(A)') 'Time,I,J,K,X,Y,Z,U,V,W,TMP,RHO,RHS_total,RHS_kinem,RHS_therm,P_old,P_new,BND_TYPE,BC_VAL'
+            
+            DO KK = 0, M%KBP1
+               DO JJ = 0, M%JBP1
+                  DO II = 0, M%IBP1
                      
+                     ! 1. 提取多值边界 BND_TYPE 掩码 (EXTERIOR 优先判定，完美标识 Ghost 层)
+                     IC = M%CELL_INDEX(II,JJ,KK)
+                     IF (M%CELL(IC)%EXTERIOR) THEN
+                        BND_TYPE = 2.0_EB          ! 网格外边界层 (外墙 / 开放边界 / 邻居分块交界面)
+                     ELSE IF (M%CELL(IC)%SOLID) THEN
+                        BND_TYPE = 1.0_EB          ! 内部固体障碍物 (OBST)
+                     ELSE
+                        BND_TYPE = 0.0_EB          ! 纯流体内部
+                     ENDIF
+                     
+                     ! 2. 提取刚才在步骤 2 中收集的具体边界值
+                     BC_VAL = EXPORT_DATA(NM)%BC_VAL_ARR(II,JJ,KK)
+                     
+                     ! 3. 提取流场基础数据
+                     IF (PREDICTOR) THEN
+                        U_VAL    = M%U(II,JJ,KK)
+                        V_VAL    = M%V(II,JJ,KK)
+                        W_VAL    = M%W(II,JJ,KK)
+                        RHO_VAL  = M%RHO(II,JJ,KK)
+                        PNEW_VAL = M%H(II,JJ,KK)
+                     ELSE
+                        U_VAL    = M%US(II,JJ,KK)
+                        V_VAL    = M%VS(II,JJ,KK)
+                        W_VAL    = M%WS(II,JJ,KK)
+                        RHO_VAL  = M%RHOS(II,JJ,KK)
+                        PNEW_VAL = M%HS(II,JJ,KK)
+                     ENDIF
+                     
+                     ! 4. 提取 RHS 源项及其分解项 (保护边界不越界，外部置 0)
+                     RHS_TOTAL_VAL = 0.0_EB
+                     RHS_THERM_VAL = 0.0_EB
+                     RHS_KINEM_VAL = 0.0_EB
+                     IF (II >= 1 .AND. II <= M%IBAR .AND. &
+                         JJ >= 1 .AND. JJ <= M%JBAR .AND. &
+                         KK >= 1 .AND. KK <= M%KBAR) THEN
+                         RHS_TOTAL_VAL = EXPORT_DATA(NM)%RHS(II,JJ,KK)
+                         RHS_THERM_VAL = -M%DDDT(II,JJ,KK)
+                         RHS_KINEM_VAL = RHS_TOTAL_VAL - RHS_THERM_VAL
+                     ENDIF
+                     
+                     ! 5. 写入所有 19 个特征
+                     WRITE(IO_UNIT, '(19(ES15.7,:,","))') &
+                        T, REAL(II, EB), REAL(JJ, EB), REAL(KK, EB), &
+                        M%XC(II), M%YC(JJ), M%ZC(KK), &
+                        U_VAL, V_VAL, W_VAL, &
+                        M%TMP(II,JJ,KK), RHO_VAL, &
+                        RHS_TOTAL_VAL, RHS_KINEM_VAL, RHS_THERM_VAL, &
+                        EXPORT_DATA(NM)%POLD(II,JJ,KK), PNEW_VAL, &
+                        BND_TYPE, BC_VAL
+                        
+                  ENDDO
                ENDDO
             ENDDO
-         ENDDO
-         CLOSE(IO_UNIT)
-      ELSE
-         WRITE(LU_ERR,*) 'ERROR: Cannot open ML training CSV file ', TRIM(CSV_FILE), ' IOSTAT=', IERR
-      END IF
-   ENDDO
-   
-   DEALLOCATE(EXPORT_DATA)
+            CLOSE(IO_UNIT)
+         ELSE
+            WRITE(LU_ERR,*) 'ERROR: Cannot open ML training CSV file ', TRIM(CSV_FILE), ' IOSTAT=', IERR
+         END IF
+
+         ! ------------------------------------------------------------
+         ! (B) 边界面值 CSV（真正的 ∂H/∂n 或 Dirichlet 值）
+         ! IOR 约定: +1=xS, -1=xF, +2=yS, -2=yF, +3=zS, -3=zF
+         ! 列: NM, IOR, F1, F2, BC_VALUE
+         !   x 面: (F1,F2)=(J,K)；y 面: (F1,F2)=(I,K)；z 面: (F1,F2)=(I,J)
+         ! ------------------------------------------------------------
+         CSV_FILE_BC = ''
+         WRITE(CSV_FILE_BC, '(A,A,I0,A,I0,A,A)') TRIM(CHID), '_ML_m', NM, '_step', ICYC, TRIM(STAGE_NAME), '_bc.csv'
+
+         IO_UNIT_BC = 1100 + NM
+         OPEN(UNIT=IO_UNIT_BC, FILE=TRIM(CSV_FILE_BC), STATUS='REPLACE', FORM='FORMATTED', IOSTAT=IERR)
+         IF (IERR == 0) THEN
+            WRITE(IO_UNIT_BC, '(A)') 'NM,IOR,F1,F2,BC_VALUE'
+
+            ! x=S 面 (IOR=+1): BXS(J,K)
+            DO K = 1, M%KBAR
+               DO J = 1, M%JBAR
+                  WRITE(IO_UNIT_BC, '(4(I0,","),ES15.7)') NM, 1, J, K, EXPORT_DATA(NM)%BXS(J,K)
+               ENDDO
+            ENDDO
+            ! x=F 面 (IOR=-1): BXF(J,K)
+            DO K = 1, M%KBAR
+               DO J = 1, M%JBAR
+                  WRITE(IO_UNIT_BC, '(4(I0,","),ES15.7)') NM, -1, J, K, EXPORT_DATA(NM)%BXF(J,K)
+               ENDDO
+            ENDDO
+            ! y=S 面 (IOR=+2): BYS(I,K)
+            DO K = 1, M%KBAR
+               DO I = 1, M%IBAR
+                  WRITE(IO_UNIT_BC, '(4(I0,","),ES15.7)') NM, 2, I, K, EXPORT_DATA(NM)%BYS(I,K)
+               ENDDO
+            ENDDO
+            ! y=F 面 (IOR=-2): BYF(I,K)
+            DO K = 1, M%KBAR
+               DO I = 1, M%IBAR
+                  WRITE(IO_UNIT_BC, '(4(I0,","),ES15.7)') NM, -2, I, K, EXPORT_DATA(NM)%BYF(I,K)
+               ENDDO
+            ENDDO
+            ! z=S 面 (IOR=+3): BZS(I,J)
+            DO J = 1, M%JBAR
+               DO I = 1, M%IBAR
+                  WRITE(IO_UNIT_BC, '(4(I0,","),ES15.7)') NM, 3, I, J, EXPORT_DATA(NM)%BZS(I,J)
+               ENDDO
+            ENDDO
+            ! z=F 面 (IOR=-3): BZF(I,J)
+            DO J = 1, M%JBAR
+               DO I = 1, M%IBAR
+                  WRITE(IO_UNIT_BC, '(4(I0,","),ES15.7)') NM, -3, I, J, EXPORT_DATA(NM)%BZF(I,J)
+               ENDDO
+            ENDDO
+
+            CLOSE(IO_UNIT_BC)
+         ELSE
+            WRITE(LU_ERR,*) 'ERROR: Cannot open ML boundary CSV file ', TRIM(CSV_FILE_BC), ' IOSTAT=', IERR
+         END IF
+      ENDDO
+   ENDIF
 END IF
 
 ! ====== 累加当前调用（预测或校正）的数据 ======
