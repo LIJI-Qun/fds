@@ -12,7 +12,8 @@ LOGICAL, SAVE :: ML_ACTIVE      = .TRUE.
 LOGICAL, SAVE :: ML_INIT_FAILED = .FALSE.
 
 PUBLIC :: PRESSURE_SOLVER_FFT, &
-          COMPUTE_VELOCITY_ERROR, PRESSURE_SOLVER_NNet_GLOBAL, ML_ACTIVE, ML_INIT_FAILED, &
+          COMPUTE_VELOCITY_ERROR, PRESSURE_SOLVER_NNet_GLOBAL, PRESSURE_SOLVER_NNet_SYNC_GHOSTS, &
+          ML_ACTIVE, ML_INIT_FAILED, &
           PRESSURE_SOLVER_CHECK_RESIDUALS, PRESSURE_SOLVER_COMPUTE_RHS, TUNNEL_POISSON_SOLVER
 
 
@@ -319,71 +320,68 @@ END SELECT
 T_USED(5)=T_USED(5)+CURRENT_TIME()-TNOW
 END SUBROUTINE PRESSURE_SOLVER_COMPUTE_RHS
 
-!> \brief Calls external DeepONet Model via C++ ONNX Bridge (Trunk & Branch)
+!> \brief Calls external DeepONet Model via Pure C++ Bridge (Multi-Mesh MPI + Ghost Cell Closure)
 SUBROUTINE PRESSURE_SOLVER_NNet_GLOBAL(PURE_INFER_T)
 
    USE COMP_FUNCTIONS,   ONLY: CURRENT_TIME
    USE GLOBAL_CONSTANTS, ONLY: T_USED, MY_RANK, N_MPI_PROCESSES, EB, &
-                               LOWER_MESH_INDEX, UPPER_MESH_INDEX, NMESHES, PREDICTOR
+                               LOWER_MESH_INDEX, UPPER_MESH_INDEX, NMESHES, PREDICTOR, &
+                               NEUMANN, DIRICHLET, SOLID_BOUNDARY, MIRROR_BOUNDARY, &
+                               INTERPOLATED_BOUNDARY, NULL_BOUNDARY
    USE MESH_VARIABLES,   ONLY: MESHES
    USE ISO_C_BINDING,    ONLY: C_FLOAT, C_INT
-
-#ifdef _OPENMP
-   USE OMP_LIB, ONLY: OMP_GET_MAX_THREADS
-#endif
-#ifdef MPI
-   USE MPI
-#endif
+   USE MPI_F08
 
    IMPLICIT NONE
 
-   ! 返回纯 C++ ONNX 矩阵推理耗时 (秒)
+   ! 返回纯 C++ Branch 矩阵推理耗时 (秒)
    REAL(EB), INTENT(OUT) :: PURE_INFER_T
 
    INTERFACE
-      FUNCTION InitMeshTrunk(nm_idx, coords, num_points, num_threads) &
-               BIND(C, NAME='InitMeshTrunk') RESULT(STATUS)
-         IMPORT :: C_FLOAT, C_INT
-         INTEGER(C_INT), VALUE :: nm_idx
-         REAL(C_FLOAT), DIMENSION(*), INTENT(IN) :: coords
-         INTEGER(C_INT), VALUE :: num_points
-         INTEGER(C_INT), VALUE :: num_threads
-         INTEGER(C_INT) :: STATUS
+      INTEGER(C_INT) FUNCTION InitMeshTrunk(nm_idx, n_points) BIND(C, NAME='InitMeshTrunk')
+         IMPORT :: C_INT
+         INTEGER(C_INT), VALUE :: nm_idx, n_points
       END FUNCTION InitMeshTrunk
 
-      FUNCTION NNpredict(nm_idx, ml_in, ml_out, num_points) &
-               BIND(C, NAME='NNpredict') RESULT(STATUS)
-         IMPORT :: C_FLOAT, C_INT
-         INTEGER(C_INT), VALUE :: nm_idx
-         REAL(C_FLOAT), DIMENSION(*), INTENT(IN)  :: ml_in
-         REAL(C_FLOAT), DIMENSION(*), INTENT(OUT) :: ml_out
-         INTEGER(C_INT), VALUE :: num_points
-         INTEGER(C_INT) :: STATUS
+      INTEGER(C_INT) FUNCTION GetSensorLookup(mesh_arr, i_arr, j_arr, k_arr, face_arr) &
+            BIND(C, NAME='GetSensorLookup')
+         IMPORT :: C_INT
+         INTEGER(C_INT), DIMENSION(*), INTENT(OUT) :: mesh_arr, i_arr, j_arr, k_arr, face_arr
+      END FUNCTION GetSensorLookup
+
+      INTEGER(C_INT) FUNCTION NNpredict(sensor_in, b_out) BIND(C, NAME='NNpredict')
+         IMPORT :: C_INT, C_FLOAT
+         REAL(C_FLOAT), DIMENSION(*), INTENT(IN)  :: sensor_in
+         REAL(C_FLOAT), DIMENSION(*), INTENT(OUT) :: b_out
       END FUNCTION NNpredict
+
+      INTEGER(C_INT) FUNCTION ComputeMeshModulators(nm_idx, b_coeff, c_out) &
+            BIND(C, NAME='ComputeMeshModulators')
+         IMPORT :: C_INT, C_FLOAT
+         INTEGER(C_INT), VALUE :: nm_idx
+         REAL(C_FLOAT), DIMENSION(*), INTENT(IN)  :: b_coeff
+         REAL(C_FLOAT), DIMENSION(*), INTENT(OUT) :: c_out
+      END FUNCTION ComputeMeshModulators
    END INTERFACE
 
-   INTEGER :: NM, II, JJ, KK, IERR
-   INTEGER :: GLOBAL_IDX
+   INTEGER, PARAMETER :: N_SENSORS = 512, N_BASIS = 24
+   LOGICAL, SAVE :: INITIALIZED = .FALSE.
+   INTEGER(C_INT), SAVE :: S_MESH(N_SENSORS), S_I(N_SENSORS), S_J(N_SENSORS), S_K(N_SENSORS), S_FACE(N_SENSORS)
 
-   INTEGER, SAVE :: TOTAL_GLOBAL_POINTS = 0
-   INTEGER, ALLOCATABLE, SAVE, DIMENSION(:) :: MESH_OFFSET
+   ! 注意：Fortran 列优先 (3, 512) 与 C++ 行优先 [512, 3] 内存逐元素严格对齐
+   REAL(C_FLOAT) :: SENSOR_LOCAL(3, N_SENSORS), SENSOR_GLOBAL(3, N_SENSORS)
+   REAL(C_FLOAT) :: B_COEFF(N_BASIS, 3)
+   REAL(C_FLOAT), ALLOCATABLE :: C_MOD(:,:,:,:)
 
-   INTEGER(C_INT) :: STATUS_ML, N_THREADS_ML
-   REAL(EB) :: TNOW, DXI, DETA, DZETA
-   REAL(EB) :: T_START_NN  ! 用于包裹 NNpredict 的高精度计时
-
-   LOGICAL, SAVE :: INIT_DONE  = .FALSE.
-   LOGICAL, SAVE :: TRUNK_DONE = .FALSE.
-
-   REAL(C_FLOAT), ALLOCATABLE, SAVE, DIMENSION(:) :: GLOBAL_ML_IN
-   REAL(C_FLOAT), ALLOCATABLE, SAVE, DIMENSION(:) :: GLOBAL_ML_OUT
-   REAL(C_FLOAT), ALLOCATABLE, SAVE, DIMENSION(:) :: GLOBAL_COORDS
-
-   REAL(EB), POINTER, DIMENSION(:,:,:) :: HP, RHOP
+   INTEGER :: NM, S, II, JJ, KK, FACE_ID, IERR, I, J, K, IW, IIG, JJG, KKG, IOR
+   INTEGER(C_INT) :: RC, GLOBAL_RC
+   REAL(EB) :: TNOW, T_START_NN, BC_VAL, HOLD_VAL, DH_VAL
+   REAL(EB), POINTER, DIMENSION(:,:,:) :: HP
+   TYPE (WALL_TYPE), POINTER :: WC
+   TYPE (EXTERNAL_WALL_TYPE), POINTER :: EWC
+   TYPE (BOUNDARY_COORD_TYPE), POINTER :: BC
 
    TNOW = CURRENT_TIME()
-   
-   ! [修改] 在一开始将 PURE_INFER_T 赋初值为 0，其他非 Rank 0 节点直接返回 0
    PURE_INFER_T = 0.0_EB
 
    IF (ML_INIT_FAILED .OR. .NOT. ML_ACTIVE) THEN
@@ -392,215 +390,272 @@ SUBROUTINE PRESSURE_SOLVER_NNet_GLOBAL(PURE_INFER_T)
    ENDIF
 
    ! ======================================================================
-   ! 1. 内存映射：计算偏移量
+   ! 1. 首次调用初始化：加载 512 测点坐标表与本 MPI 进程负责的分块基底 phi_mesh
    ! ======================================================================
-   IF (.NOT. INIT_DONE) THEN
-      ALLOCATE(MESH_OFFSET(NMESHES))
-      TOTAL_GLOBAL_POINTS = 0
-      
-      DO NM = 1, NMESHES
-         MESH_OFFSET(NM) = TOTAL_GLOBAL_POINTS
-         TOTAL_GLOBAL_POINTS = TOTAL_GLOBAL_POINTS + &
-              MESHES(NM)%IBAR * MESHES(NM)%JBAR * MESHES(NM)%KBAR
-      ENDDO
-
-      ALLOCATE(GLOBAL_ML_IN (6 * TOTAL_GLOBAL_POINTS))
-      ALLOCATE(GLOBAL_ML_OUT(    TOTAL_GLOBAL_POINTS))
-      ALLOCATE(GLOBAL_COORDS(3 * TOTAL_GLOBAL_POINTS))
-      GLOBAL_ML_IN  = 0._C_FLOAT
-      GLOBAL_ML_OUT = 0._C_FLOAT
-      GLOBAL_COORDS = 0._C_FLOAT
-
-      INIT_DONE = .TRUE.
-   ENDIF
-
-   ! ======================================================================
-   ! 2. Trunk 初始化：[优化] 仅 Rank 0 初始化并生成 Trunk 缓存
-   ! ======================================================================
-   IF (.NOT. TRUNK_DONE) THEN
-      GLOBAL_COORDS = 0._C_FLOAT
-      
-      DO NM = LOWER_MESH_INDEX, UPPER_MESH_INDEX
-         DO KK = 1, MESHES(NM)%KBAR
-            DO JJ = 1, MESHES(NM)%JBAR
-               DO II = 1, MESHES(NM)%IBAR
-                  GLOBAL_IDX = MESH_OFFSET(NM) + (KK-1)*MESHES(NM)%JBAR*MESHES(NM)%IBAR + (JJ-1)*MESHES(NM)%IBAR + (II-1)
-                  GLOBAL_COORDS(GLOBAL_IDX*3 + 1) = REAL(MESHES(NM)%XC(II), C_FLOAT)
-                  GLOBAL_COORDS(GLOBAL_IDX*3 + 2) = REAL(MESHES(NM)%YC(JJ), C_FLOAT)
-                  GLOBAL_COORDS(GLOBAL_IDX*3 + 3) = REAL(MESHES(NM)%ZC(KK), C_FLOAT)
-               ENDDO
-            ENDDO
+   IF (.NOT. INITIALIZED) THEN
+      RC = GetSensorLookup(S_MESH, S_I, S_J, S_K, S_FACE)
+      IF (RC == 0_C_INT) THEN
+         DO NM = LOWER_MESH_INDEX, UPPER_MESH_INDEX
+            RC = InitMeshTrunk(INT(NM, C_INT), &
+                 INT(MESHES(NM)%IBAR * MESHES(NM)%JBAR * MESHES(NM)%KBAR, C_INT))
+            IF (RC /= 0_C_INT) EXIT
          ENDDO
-      ENDDO
+      ENDIF
 
-#ifdef MPI
+      GLOBAL_RC = RC
       IF (N_MPI_PROCESSES > 1) THEN
-         CALL MPI_ALLREDUCE(MPI_IN_PLACE, GLOBAL_COORDS, 3*TOTAL_GLOBAL_POINTS, MPI_REAL, MPI_SUM, MPI_COMM_WORLD, IERR)
-      ENDIF
-#endif
-
-      STATUS_ML = 0_C_INT
-      IF (MY_RANK == 0) THEN
-#ifdef _OPENMP
-         N_THREADS_ML = INT(MAX(1, OMP_GET_MAX_THREADS()), C_INT)
-#else
-         N_THREADS_ML = 1_C_INT
-#endif
-         STATUS_ML = InitMeshTrunk(MY_RANK, GLOBAL_COORDS, TOTAL_GLOBAL_POINTS, N_THREADS_ML)
+         CALL MPI_ALLREDUCE(RC, GLOBAL_RC, 1, MPI_INTEGER, MPI_MAX, MPI_COMM_WORLD, IERR)
       ENDIF
 
-#ifdef MPI
-      IF (N_MPI_PROCESSES > 1) THEN
-         CALL MPI_BCAST(STATUS_ML, 1, MPI_INTEGER, 0, MPI_COMM_WORLD, IERR)
-      ENDIF
-#endif
-
-      IF (STATUS_ML /= 0) THEN
+      IF (GLOBAL_RC /= 0_C_INT) THEN
          ML_INIT_FAILED = .TRUE.
          ML_ACTIVE      = .FALSE.
+         IF (MY_RANK == 0) WRITE(*,*) '>>> [DeepONet] Init failed, falling back to Native Poisson Solver.'
          T_USED(5) = T_USED(5) + CURRENT_TIME() - TNOW
          RETURN
       ENDIF
-      TRUNK_DONE = .TRUE.
+      INITIALIZED = .TRUE.
    ENDIF
 
    ! ======================================================================
-   ! 3. 数据打包
+   ! 2. 多块网格并行组装 512 个稀疏测点 (仅 6 KB 通信，彻底替代原 4.7 MB 全场打包)
    ! ======================================================================
-   GLOBAL_ML_IN = 0._C_FLOAT
-   
-   DO NM = LOWER_MESH_INDEX, UPPER_MESH_INDEX
+   SENSOR_LOCAL = 0.0_C_FLOAT
+
+   DO S = 1, N_SENSORS
+      NM = S_MESH(S)
+      IF (NM < LOWER_MESH_INDEX .OR. NM > UPPER_MESH_INDEX) CYCLE
+
+      CALL POINT_TO_MESH(NM)
+      II = S_I(S); JJ = S_J(S); KK = S_K(S); FACE_ID = S_FACE(S)
+
       IF (PREDICTOR) THEN
-         HP   => MESHES(NM)%H
-         RHOP => MESHES(NM)%RHO
+         HOLD_VAL = H(II, JJ, KK)
       ELSE
-         HP   => MESHES(NM)%HS
-         RHOP => MESHES(NM)%RHOS
-      ENDIF
+         HOLD_VAL = HS(II, JJ, KK)
+      END IF
 
-      DO KK = 1, MESHES(NM)%KBAR
-         DO JJ = 1, MESHES(NM)%JBAR
-            DO II = 1, MESHES(NM)%IBAR
-               GLOBAL_IDX = MESH_OFFSET(NM) + (KK-1)*MESHES(NM)%JBAR*MESHES(NM)%IBAR + (JJ-1)*MESHES(NM)%IBAR + (II-1)
-               
-               GLOBAL_ML_IN(GLOBAL_IDX*6 + 1) = REAL(MESHES(NM)%XC(II),       C_FLOAT)
-               GLOBAL_ML_IN(GLOBAL_IDX*6 + 2) = REAL(MESHES(NM)%YC(JJ),       C_FLOAT)
-               GLOBAL_ML_IN(GLOBAL_IDX*6 + 3) = REAL(MESHES(NM)%ZC(KK),       C_FLOAT)
-               GLOBAL_ML_IN(GLOBAL_IDX*6 + 4) = REAL(MESHES(NM)%PRHS(II,JJ,KK), C_FLOAT)
-               GLOBAL_ML_IN(GLOBAL_IDX*6 + 5) = REAL(RHOP(II,JJ,KK),          C_FLOAT)
-               GLOBAL_ML_IN(GLOBAL_IDX*6 + 6) = REAL(HP(II,JJ,KK),            C_FLOAT)
-            ENDDO
-         ENDDO
-      ENDDO
-   ENDDO
+      IF (FACE_ID == 0) THEN
+         ! 内部流体体积测点: [RHS_total, 0.0, H_old]
+         SENSOR_LOCAL(1, S) = REAL(PRHS(II, JJ, KK), C_FLOAT)
+         SENSOR_LOCAL(2, S) = 0.0_C_FLOAT
+         SENSOR_LOCAL(3, S) = REAL(HOLD_VAL, C_FLOAT)
+      ELSE
+         ! 边界面幽灵测点: [0.0, BC_VAL, H_old]
+         ! FDS 约定: BXS/BYS/BZS 对应 x=XS(i=0)/y=YS(j=0)/z=ZS(k=0), BXF/BYF/BZF 对应 x=XF/y=YF/z=ZF
+         SELECT CASE (FACE_ID)
+            CASE (1); BC_VAL = BXS(JJ, KK) ! xm (i = 0)
+            CASE (2); BC_VAL = BXF(JJ, KK) ! xp (i = IBP1)
+            CASE (3); BC_VAL = BYS(II, KK) ! ym (j = 0)
+            CASE (4); BC_VAL = BYF(II, KK) ! yp (j = JBP1)
+            CASE (5); BC_VAL = BZS(II, JJ) ! zm (k = 0)
+            CASE (6); BC_VAL = BZF(II, JJ) ! zp (k = KBP1)
+            CASE DEFAULT; BC_VAL = 0.0_EB
+         END SELECT
+         SENSOR_LOCAL(1, S) = 0.0_C_FLOAT
+         SENSOR_LOCAL(2, S) = REAL(BC_VAL, C_FLOAT)
+         SENSOR_LOCAL(3, S) = REAL(HOLD_VAL, C_FLOAT)
+      END IF
+   END DO
 
-#ifdef MPI
-   ! 4.7MB 的 MPI ALLREDUCE，不计入纯推理时间
    IF (N_MPI_PROCESSES > 1) THEN
-      CALL MPI_ALLREDUCE(MPI_IN_PLACE, GLOBAL_ML_IN, 6*TOTAL_GLOBAL_POINTS, MPI_REAL, MPI_SUM, MPI_COMM_WORLD, IERR)
-   ENDIF
-#endif
+      CALL MPI_ALLREDUCE(SENSOR_LOCAL, SENSOR_GLOBAL, 3 * N_SENSORS, MPI_REAL, MPI_SUM, MPI_COMM_WORLD, IERR)
+   ELSE
+      SENSOR_GLOBAL = SENSOR_LOCAL
+   END IF
 
    ! ======================================================================
-   ! 4. 仅 Rank 0 运行，彻底剥离通信时间
+   ! 3. 纯 C++ 极速 Branch 推理 (所有进程本地直接算出相同的 72 个模态系数 B_COEFF)
    ! ======================================================================
-   STATUS_ML = 0_C_INT
+   T_START_NN = CURRENT_TIME()
+   RC = NNpredict(SENSOR_GLOBAL, B_COEFF)
    IF (MY_RANK == 0) THEN
-      T_START_NN = CURRENT_TIME()
-      STATUS_ML = NNpredict(MY_RANK, GLOBAL_ML_IN, GLOBAL_ML_OUT, TOTAL_GLOBAL_POINTS)
       PURE_INFER_T = CURRENT_TIME() - T_START_NN
    ENDIF
 
-#ifdef MPI
-   IF (N_MPI_PROCESSES > 1) THEN
-      CALL MPI_BCAST(STATUS_ML, 1, MPI_INTEGER, 0, MPI_COMM_WORLD, IERR)
-      ! [修改] 彻底删除对 PURE_INFER_T 的 MPI_BCAST！
-      ! Rank 0 在上面已经自行得到了正确的纯推理时间。其他从节点在 Barrier 的死等时间绝不能混入。
-   ENDIF
-#endif
-
-   IF (STATUS_ML /= 0) THEN
+   IF (RC /= 0_C_INT) THEN
       ML_INIT_FAILED = .TRUE.
       ML_ACTIVE      = .FALSE.
       T_USED(5) = T_USED(5) + CURRENT_TIME() - TNOW
       RETURN
    ENDIF
 
-#ifdef MPI
-   ! 广播 19.6 万点计算结果，同样不计入纯推理时间
-   IF (N_MPI_PROCESSES > 1) THEN
-      CALL MPI_BCAST(GLOBAL_ML_OUT, TOTAL_GLOBAL_POINTS, MPI_REAL, 0, MPI_COMM_WORLD, IERR)
-   ENDIF
-#endif
-
    ! ======================================================================
-   ! 5. 局部解包与边界对齐 
+   ! 4. 各 MPI 进程并行重构本地网格内部 H/HS 并闭合外部边界面幽灵层
    ! ======================================================================
    DO NM = LOWER_MESH_INDEX, UPPER_MESH_INDEX
+      CALL POINT_TO_MESH(NM)
       IF (PREDICTOR) THEN
-         HP => MESHES(NM)%H
+         HP => H
       ELSE
-         HP => MESHES(NM)%HS
-      ENDIF
+         HP => HS
+      END IF
 
-      DO KK = 1, MESHES(NM)%KBAR
-         DO JJ = 1, MESHES(NM)%JBAR
-            DO II = 1, MESHES(NM)%IBAR
-               GLOBAL_IDX = MESH_OFFSET(NM) + (KK-1)*MESHES(NM)%JBAR*MESHES(NM)%IBAR + (JJ-1)*MESHES(NM)%IBAR + (II-1)
-               HP(II,JJ,KK) = REAL(GLOBAL_ML_OUT(GLOBAL_IDX + 1), EB)
-            ENDDO
-         ENDDO
-      ENDDO
+      ALLOCATE(C_MOD(3, IBAR, JBAR, KBAR))
+      RC = ComputeMeshModulators(INT(NM, C_INT), B_COEFF, C_MOD)
+      IF (RC /= 0_C_INT) THEN
+         DEALLOCATE(C_MOD)
+         ML_INIT_FAILED = .TRUE.
+         ML_ACTIVE      = .FALSE.
+         T_USED(5) = T_USED(5) + CURRENT_TIME() - TNOW
+         RETURN
+      END IF
 
-      DXI   = 1.0_EB / MESHES(NM)%DX(1)
-      DETA  = 1.0_EB / MESHES(NM)%DY(1)
-      DZETA = 1.0_EB / MESHES(NM)%DZ(1)
+      !$OMP PARALLEL DO COLLAPSE(3) SCHEDULE(STATIC) PRIVATE(I, J, K, HOLD_VAL, DH_VAL)
+      DO K = 1, KBAR
+         DO J = 1, JBAR
+            DO I = 1, IBAR
+               IF (CELL(CELL_INDEX(I, J, K))%SOLID) CYCLE
+               HOLD_VAL = HP(I, J, K)
+               DH_VAL   = REAL(C_MOD(1, I, J, K), EB) &
+                        + REAL(C_MOD(2, I, J, K), EB) * PRHS(I, J, K) &
+                        + REAL(C_MOD(3, I, J, K), EB) * HOLD_VAL
+               HP(I, J, K) = HOLD_VAL + DH_VAL
+            END DO
+         END DO
+      END DO
+      !$OMP END PARALLEL DO
 
-      DO KK = 1, MESHES(NM)%KBAR
-         DO JJ = 1, MESHES(NM)%JBAR
-            IF (MESHES(NM)%LBC==3 .OR. MESHES(NM)%LBC==4) HP(0,JJ,KK) = HP(1,JJ,KK) - DXI * MESHES(NM)%BXS(JJ,KK)
-            IF (MESHES(NM)%LBC==3 .OR. MESHES(NM)%LBC==2 .OR. MESHES(NM)%LBC==6) HP(MESHES(NM)%IBP1,JJ,KK) = HP(MESHES(NM)%IBAR,JJ,KK) + DXI * MESHES(NM)%BXF(JJ,KK)
-            IF (MESHES(NM)%LBC==1 .OR. MESHES(NM)%LBC==2) HP(0,JJ,KK) = -HP(1,JJ,KK) + 2._EB * MESHES(NM)%BXS(JJ,KK)
-            IF (MESHES(NM)%LBC==1 .OR. MESHES(NM)%LBC==4 .OR. MESHES(NM)%LBC==5) HP(MESHES(NM)%IBP1,JJ,KK) = -HP(MESHES(NM)%IBAR,JJ,KK) + 2._EB * MESHES(NM)%BXF(JJ,KK)
-            IF (MESHES(NM)%LBC==5 .OR. MESHES(NM)%LBC==6) HP(0,JJ,KK) = HP(1,JJ,KK)
-            IF (MESHES(NM)%LBC==0) THEN
-               HP(0,JJ,KK)                = HP(MESHES(NM)%IBAR,JJ,KK)
-               HP(MESHES(NM)%IBP1,JJ,KK) = HP(1,JJ,KK)
+      DEALLOCATE(C_MOD)
+
+      ! 4.2 严格按 ULMAT/GLMAT 外部墙单元精确更新四周幽灵层 HP(I,J,K)
+      WALL_CELL_LOOP_ML : DO IW = 1, N_EXTERNAL_WALL_CELLS
+         WC  => WALL(IW)
+         EWC => EXTERNAL_WALL(IW)
+         BC  => BOUNDARY_COORD(WC%BC_INDEX)
+         IIG = BC%IIG; JJG = BC%JJG; KKG = BC%KKG; IOR = BC%IOR
+         I   = BC%II;  J   = BC%JJ;  K   = BC%KK
+
+         IF (EWC%PRESSURE_BC_TYPE == NEUMANN) THEN
+            SELECT CASE (IOR)
+               CASE(-1); HP(I,J,K) = HP(IIG,JJG,KKG) + DXN(IIG)*BXF(J,K)
+               CASE( 1); HP(I,J,K) = HP(IIG,JJG,KKG) - DXN(IIG-1)*BXS(J,K)
+               CASE(-2); HP(I,J,K) = HP(IIG,JJG,KKG) + DYN(JJG)*BYF(I,K)
+               CASE( 2); HP(I,J,K) = HP(IIG,JJG,KKG) - DYN(JJG-1)*BYS(I,K)
+               CASE(-3); HP(I,J,K) = HP(IIG,JJG,KKG) + DZN(KKG)*BZF(I,J)
+               CASE( 3); HP(I,J,K) = HP(IIG,JJG,KKG) - DZN(KKG-1)*BZS(I,J)
+            END SELECT
+         ELSEIF (EWC%PRESSURE_BC_TYPE == DIRICHLET) THEN
+            ! [关键修复]：多网格交界面 (INTERPOLATED_BOUNDARY) 与空边界 (NULL_BOUNDARY)
+            ! 必须在 main.f90 执行 CALL MESH_EXCHANGE(5) 交换完相邻网格新预测的 HP 后，
+            ! 再由 PRESSURE_SOLVER_NNet_SYNC_GHOSTS / COPY_H_OMESH_TO_MESH 精确插值更新！
+            ! 若在此处使用求解前的旧时刻 BXS/BXF 覆写幽灵层，会在 Mesh 1 加密网格边界产生
+            ! 高达 -200*dH 的伪拉普拉斯残差峰值，并污染进入火羽流的速度场导致最高温度失真。
+            IF (WC%BOUNDARY_TYPE == INTERPOLATED_BOUNDARY .OR. &
+                WC%BOUNDARY_TYPE == NULL_BOUNDARY) CYCLE WALL_CELL_LOOP_ML
+
+            IF (WC%BOUNDARY_TYPE == SOLID_BOUNDARY .OR. WC%BOUNDARY_TYPE == MIRROR_BOUNDARY) THEN
+               HP(I,J,K) = HP(IIG,JJG,KKG)
+            ELSE
+               SELECT CASE (IOR)
+                  CASE(-1); HP(I,J,K) = -HP(IIG,JJG,KKG) + 2._EB*BXF(J,K)
+                  CASE( 1); HP(I,J,K) = -HP(IIG,JJG,KKG) + 2._EB*BXS(J,K)
+                  CASE(-2); HP(I,J,K) = -HP(IIG,JJG,KKG) + 2._EB*BYF(I,K)
+                  CASE( 2); HP(I,J,K) = -HP(IIG,JJG,KKG) + 2._EB*BYS(I,K)
+                  CASE(-3); HP(I,J,K) = -HP(IIG,JJG,KKG) + 2._EB*BZF(I,J)
+                  CASE( 3); HP(I,J,K) = -HP(IIG,JJG,KKG) + 2._EB*BZS(I,J)
+               END SELECT
             ENDIF
-         ENDDO
-      ENDDO
-
-      DO KK = 1, MESHES(NM)%KBAR
-         DO II = 1, MESHES(NM)%IBAR
-            IF (MESHES(NM)%MBC==3 .OR. MESHES(NM)%MBC==4) HP(II,0,KK) = HP(II,1,KK) - DETA * MESHES(NM)%BYS(II,KK)
-            IF (MESHES(NM)%MBC==3 .OR. MESHES(NM)%MBC==2 .OR. MESHES(NM)%MBC==6) HP(II,MESHES(NM)%JBP1,KK) = HP(II,MESHES(NM)%JBAR,KK) + DETA * MESHES(NM)%BYF(II,KK)
-            IF (MESHES(NM)%MBC==1 .OR. MESHES(NM)%MBC==2) HP(II,0,KK) = -HP(II,1,KK) + 2._EB * MESHES(NM)%BYS(II,KK)
-            IF (MESHES(NM)%MBC==1 .OR. MESHES(NM)%MBC==4 .OR. MESHES(NM)%MBC==5) HP(II,MESHES(NM)%JBP1,KK) = -HP(II,MESHES(NM)%JBAR,KK) + 2._EB * MESHES(NM)%BYF(II,KK)
-            IF (MESHES(NM)%MBC==5 .OR. MESHES(NM)%MBC==6) HP(II,0,KK) = HP(II,1,KK)
-            IF (MESHES(NM)%MBC==0) THEN
-               HP(II,0,KK)                = HP(II,MESHES(NM)%JBAR,KK)
-               HP(II,MESHES(NM)%JBP1,KK) = HP(II,1,KK)
-            ENDIF
-         ENDDO
-      ENDDO
-
-      DO JJ = 1, MESHES(NM)%JBAR
-         DO II = 1, MESHES(NM)%IBAR
-            IF (MESHES(NM)%NBC==3 .OR. MESHES(NM)%NBC==4) HP(II,JJ,0) = HP(II,JJ,1) - DZETA * MESHES(NM)%BZS(II,JJ)
-            IF (MESHES(NM)%NBC==3 .OR. MESHES(NM)%NBC==2) HP(II,JJ,MESHES(NM)%KBP1) = HP(II,JJ,MESHES(NM)%KBAR) + DZETA * MESHES(NM)%BZF(II,JJ)
-            IF (MESHES(NM)%NBC==1 .OR. MESHES(NM)%NBC==2) HP(II,JJ,0) = -HP(II,JJ,1) + 2._EB * MESHES(NM)%BZS(II,JJ)
-            IF (MESHES(NM)%NBC==1 .OR. MESHES(NM)%NBC==4) HP(II,JJ,MESHES(NM)%KBP1) = -HP(II,JJ,MESHES(NM)%KBAR) + 2._EB * MESHES(NM)%BZF(II,JJ)
-            IF (MESHES(NM)%NBC==0) THEN
-               HP(II,JJ,0)                = HP(II,JJ,MESHES(NM)%KBAR)
-               HP(II,JJ,MESHES(NM)%KBP1) = HP(II,JJ,1)
-            ENDIF
-         ENDDO
-      ENDDO
-   ENDDO
+         ENDIF
+      ENDDO WALL_CELL_LOOP_ML
+   END DO
 
    T_USED(5) = T_USED(5) + CURRENT_TIME() - TNOW
 
 END SUBROUTINE PRESSURE_SOLVER_NNet_GLOBAL
+
+
+!> \brief 在 CALL MESH_EXCHANGE(5) 之后同步多网格交界面 (INTERPOLATED_BOUNDARY) 的 BXS..BZF 与幽灵单元 HP
+SUBROUTINE PRESSURE_SOLVER_NNet_SYNC_GHOSTS
+
+   USE COMP_FUNCTIONS,   ONLY: CURRENT_TIME
+   USE GLOBAL_CONSTANTS, ONLY: T_USED, EB, LOWER_MESH_INDEX, UPPER_MESH_INDEX, &
+                               PREDICTOR, INTERPOLATED_BOUNDARY
+   USE MESH_VARIABLES,   ONLY: MESHES
+
+   IMPLICIT NONE
+
+   INTEGER :: NM, IW, I, J, K, IIG, JJG, KKG, IOR, NOM
+   INTEGER :: IIO, JJO, KKO, N_INT_CELLS
+   REAL(EB) :: TNOW, H_OTHER_AVG, DX_OTHER, DY_OTHER, DZ_OTHER
+   REAL(EB), POINTER, DIMENSION(:,:,:) :: HP, OM_HP
+   TYPE (WALL_TYPE), POINTER :: WC
+   TYPE (EXTERNAL_WALL_TYPE), POINTER :: EWC
+   TYPE (BOUNDARY_COORD_TYPE), POINTER :: BC
+   TYPE (OMESH_TYPE), POINTER :: OM
+
+   TNOW = CURRENT_TIME()
+
+   DO NM = LOWER_MESH_INDEX, UPPER_MESH_INDEX
+      CALL POINT_TO_MESH(NM)
+      IF (PREDICTOR) THEN
+         HP => H
+      ELSE
+         HP => HS
+      END IF
+
+      DO IW = 1, N_EXTERNAL_WALL_CELLS
+         WC  => WALL(IW)
+         IF (WC%BOUNDARY_TYPE /= INTERPOLATED_BOUNDARY) CYCLE
+         EWC => EXTERNAL_WALL(IW)
+         NOM = EWC%NOM
+         IF (NOM < 1) CYCLE
+         BC  => BOUNDARY_COORD(WC%BC_INDEX)
+         I   = BC%II;  J   = BC%JJ;  K   = BC%KK
+         IIG = BC%IIG; JJG = BC%JJG; KKG = BC%KKG
+         IOR = BC%IOR
+         OM  => OMESH(NOM)
+         IF (PREDICTOR) THEN
+            OM_HP => OM%H
+         ELSE
+            OM_HP => OM%HS
+         END IF
+
+         H_OTHER_AVG = 0.0_EB
+         N_INT_CELLS = 0
+         DO KKO = EWC%KKO_MIN, EWC%KKO_MAX
+            DO JJO = EWC%JJO_MIN, EWC%JJO_MAX
+               DO IIO = EWC%IIO_MIN, EWC%IIO_MAX
+                  H_OTHER_AVG = H_OTHER_AVG + OM_HP(IIO, JJO, KKO)
+                  N_INT_CELLS = N_INT_CELLS + 1
+               END DO
+            END DO
+         END DO
+         IF (N_INT_CELLS <= 0) CYCLE
+         H_OTHER_AVG = H_OTHER_AVG / REAL(N_INT_CELLS, EB)
+
+         SELECT CASE (IOR)
+            CASE( 1)
+               DX_OTHER  = MESHES(NOM)%DX(EWC%IIO_MIN)
+               BXS(J,K)  = (DX_OTHER*HP(1,J,K) + DX(1)*H_OTHER_AVG)/(DX(1)+DX_OTHER) + WALL_WORK1(IW)
+               HP(0,J,K) = -HP(1,J,K) + 2.0_EB*BXS(J,K)
+            CASE(-1)
+               DX_OTHER     = MESHES(NOM)%DX(EWC%IIO_MIN)
+               BXF(J,K)     = (DX_OTHER*HP(IBAR,J,K) + DX(IBAR)*H_OTHER_AVG)/(DX(IBAR)+DX_OTHER) + WALL_WORK1(IW)
+               HP(IBP1,J,K) = -HP(IBAR,J,K) + 2.0_EB*BXF(J,K)
+            CASE( 2)
+               DY_OTHER  = MESHES(NOM)%DY(EWC%JJO_MIN)
+               BYS(I,K)  = (DY_OTHER*HP(I,1,K) + DY(1)*H_OTHER_AVG)/(DY(1)+DY_OTHER) + WALL_WORK1(IW)
+               HP(I,0,K) = -HP(I,1,K) + 2.0_EB*BYS(I,K)
+            CASE(-2)
+               DY_OTHER     = MESHES(NOM)%DY(EWC%JJO_MIN)
+               BYF(I,K)     = (DY_OTHER*HP(I,JBAR,K) + DY(JBAR)*H_OTHER_AVG)/(DY(JBAR)+DY_OTHER) + WALL_WORK1(IW)
+               HP(I,JBP1,K) = -HP(I,JBAR,K) + 2.0_EB*BYF(I,K)
+            CASE( 3)
+               DZ_OTHER  = MESHES(NOM)%DZ(EWC%KKO_MIN)
+               BZS(I,J)  = (DZ_OTHER*HP(I,J,1) + DZ(1)*H_OTHER_AVG)/(DZ(1)+DZ_OTHER) + WALL_WORK1(IW)
+               HP(I,J,0) = -HP(I,J,1) + 2.0_EB*BZS(I,J)
+            CASE(-3)
+               DZ_OTHER     = MESHES(NOM)%DZ(EWC%KKO_MIN)
+               BZF(I,J)     = (DZ_OTHER*HP(I,J,KBAR) + DZ(KBAR)*H_OTHER_AVG)/(DZ(KBAR)+DZ_OTHER) + WALL_WORK1(IW)
+               HP(I,J,KBP1) = -HP(I,J,KBAR) + 2.0_EB*BZF(I,J)
+         END SELECT
+      END DO
+   END DO
+
+   T_USED(5) = T_USED(5) + CURRENT_TIME() - TNOW
+
+END SUBROUTINE PRESSURE_SOLVER_NNet_SYNC_GHOSTS
 
 
 SUBROUTINE PRESSURE_SOLVER_FFT(NM)

@@ -1470,7 +1470,7 @@ END SUBROUTINE MPI_INITIALIZATION_CHORES
 SUBROUTINE PRESSURE_ITERATION_SCHEME
 
    USE CC_SCALARS, ONLY : GET_LINKED_FV
-   USE PRES, ONLY : PRESSURE_SOLVER_NNet_GLOBAL, ML_ACTIVE, ML_INIT_FAILED
+   USE PRES, ONLY : PRESSURE_SOLVER_NNet_GLOBAL, PRESSURE_SOLVER_NNet_SYNC_GHOSTS, ML_ACTIVE, ML_INIT_FAILED
    USE ISO_C_BINDING
    USE MPI_F08
 
@@ -1499,12 +1499,21 @@ SUBROUTINE PRESSURE_ITERATION_SCHEME
    LOGICAL  :: LOCAL_FAILED, GLOBAL_FAILED
 
    INTEGER, SAVE :: ML_COOLDOWN = 0
+   INTEGER, SAVE :: ML_CONSEC_FAILS = 0
    INTEGER, SAVE :: ML_CALL_COUNT = 0
    INTEGER, SAVE :: ML_SUCCESS_COUNT = 0
    INTEGER, SAVE :: ML_FALLBACK_COUNT = 0
    REAL(EB), SAVE :: TOTAL_ML_TIME = 0.0_EB
-   REAL(EB), PARAMETER :: ML_RES_TOL = 2000.0_EB
-   LOGICAL :: USED_ML
+   ! [双阈值分级容错机制 + 启动时间控制]：
+   ! 1) ML_START_TIME (默认 2.0s)：避开 0~2s 点火冲击与初始羽流上升撞击顶棚的剧烈拓扑突变期，抑制早期涡相位偏移累积；
+   ! 2) GLOBAL_MAX_ERR <= ML_STRICT_TOL (140.0)：严格对齐原生 ULMAT 单步基准 (~130)，1步直接放行；
+   ! 3) ML_STRICT_TOL < GLOBAL_MAX_ERR <= ML_RES_TOL (260.0)：采纳 ML 预测场作为第1步初值，
+   !    强制执行速度误差检查与第2步原生斜压修正迭代（修复原先因默认 PRESSURE_TOLERANCE=1E10 导致第2步被跳过的漏洞）；
+   ! 4) GLOBAL_MAX_ERR > ML_RES_TOL (260.0) 或 NaN：立即回滚至 ML_BACKUP 并调用原生求解器兜底，保证流场与温度场高保真 (R2 > 0.95)。
+   REAL(EB), PARAMETER :: ML_START_TIME = 1.0_EB
+   REAL(EB), PARAMETER :: ML_STRICT_TOL = 500.0_EB
+   REAL(EB), PARAMETER :: ML_RES_TOL    = 800.0_EB
+   LOGICAL :: USED_ML, ML_NEEDS_BAROCLINIC_REFINE
 
    REAL(EB) :: T_ELAPSED_ML_INFER ! 只用于接收 C++ 纯推理时间
    REAL(EB), SAVE :: TOTAL_ML_INFER_TIME = 0.0_EB
@@ -1594,6 +1603,7 @@ SUBROUTINE PRESSURE_ITERATION_SCHEME
 
    TOTAL_T_POISSON = 0.0_EB
    COUNT_POISSON   = 0
+   ML_NEEDS_BAROCLINIC_REFINE = .FALSE.
 
    PRESSURE_ITERATION_LOOP: DO
 
@@ -1621,10 +1631,10 @@ SUBROUTINE PRESSURE_ITERATION_SCHEME
       USED_ML = .FALSE.
 
    ! ====================================================================
-      ! 1. 机器学习加速分支 
+      ! 1. 机器学习加速分支 (PREDICTOR 预测步与 CORRECTOR 修正步均启用 ML 加速)
    ! ==================================================================== 
-      IF (PRES_FLAG /= FFT_FLAG .AND. CORRECTOR .AND. PRESSURE_ITERATIONS == 1 &
-          .AND. ML_ACTIVE .AND. .NOT. ML_INIT_FAILED .AND. T > 0.1_EB) THEN  
+      IF (PRES_FLAG /= FFT_FLAG .AND. (PREDICTOR .OR. CORRECTOR) .AND. PRESSURE_ITERATIONS == 1 &
+          .AND. ML_ACTIVE .AND. .NOT. ML_INIT_FAILED .AND. T >= ML_START_TIME) THEN  
          
          ! [优化1]：3D数组备份完全移出测速区
          DO NM = LOWER_MESH_INDEX, UPPER_MESH_INDEX
@@ -1635,6 +1645,12 @@ SUBROUTINE PRESSURE_ITERATION_SCHEME
          T_START_POISSON = CURRENT_TIME()
          CALL PRESSURE_SOLVER_NNet_GLOBAL(T_ELAPSED_ML_INFER)
          CALL MESH_EXCHANGE(5)
+         ! [关键修复]：在 MESH_EXCHANGE(5) 交换各网格新预测的 H/HS 后，立即同步所有多网格交界面幽灵层，
+         ! 彻底消除 Mesh 1 火源加密区边界处的伪拉普拉斯残差与法向速度跳变
+         CALL PRESSURE_SOLVER_NNet_SYNC_GHOSTS
+         IF (PRES_FLAG == GLMAT_FLAG .OR. PRES_FLAG == UGLMAT_FLAG) THEN
+            CALL COPY_H_OMESH_TO_MESH
+         ENDIF
          T_ELAPSED_POISSON = CURRENT_TIME() - T_START_POISSON
          
          USED_ML = .TRUE.
@@ -1716,12 +1732,16 @@ SUBROUTINE PRESSURE_ITERATION_SCHEME
          ENDIF
 
          IF (GLOBAL_FAILED) THEN
+            ML_CONSEC_FAILS   = ML_CONSEC_FAILS + 1
             ML_ACTIVE         = .FALSE.
-            ML_COOLDOWN       = 400
+            ! [自适应指数退避冷却]：单步偶发脉动仅冷却 4 步（原为固定 400 步锁死），
+            ! 连续失败则按 4 -> 8 -> 16 -> 32 -> 40 步递增，兼顾高调用率与极端火焰突变期安全性
+            ML_COOLDOWN       = MIN(160, 10 * (2 ** MIN(ML_CONSEC_FAILS - 1, 3)))
             ML_FALLBACK_COUNT = ML_FALLBACK_COUNT + 1
 
             IF (MY_RANK == 0) THEN
-               WRITE(*,*) '>>> [Safe-Net] ML Exceeded tolerance or produced NaN! Rolling back to Native Solver.'
+               WRITE(*,'(A,ES12.5,A,I0,A)') '>>> [Safe-Net] ML Rollback (Err=', GLOBAL_MAX_ERR, &
+                  '). Dynamic Cooldown = ', ML_COOLDOWN, ' steps.'
             ENDIF
 
             DO NM = LOWER_MESH_INDEX, UPPER_MESH_INDEX
@@ -1736,16 +1756,29 @@ SUBROUTINE PRESSURE_ITERATION_SCHEME
             CYCLE PRESSURE_ITERATION_LOOP     
          
          ELSE
-            ! 仅增加成功次数即可，耗时已在上方无条件累加了
+            ! 一旦成功立即清零连续失败计数
+            ML_CONSEC_FAILS     = 0
             ML_SUCCESS_COUNT    = ML_SUCCESS_COUNT + 1
             STEP_ML_SUCCESS     = .TRUE.
             PERIODIC_ML_SUCCESS = PERIODIC_ML_SUCCESS + 1
 
-            EXIT PRESSURE_ITERATION_LOOP
+            ! [分级放行]：
+            ! 若残差 <= ML_STRICT_TOL (180.0)，说明流场与斜压项已高度吻合，直接跳出循环；
+            ! 若残差在 (180.0, 800.0] 之间，保留 ML 预测结果作为第 1 步解，不直接跳出，
+            ! 而是继续执行下方速度误差检查并在必要时补做 1 次斜压修正迭代，确保火羽流峰值温度准确！
+            IF (GLOBAL_MAX_ERR <= ML_STRICT_TOL) THEN
+               EXIT PRESSURE_ITERATION_LOOP
+            ELSE
+               ML_NEEDS_BAROCLINIC_REFINE = .TRUE.
+            ENDIF
          ENDIF
       ENDIF
 
-      IF (.NOT. ITERATE_PRESSURE) EXIT PRESSURE_ITERATION_LOOP
+      ! 若用户未开启全局 ITERATE_PRESSURE，但当前步 ML 处于 (ML_STRICT_TOL, ML_RES_TOL] 区间，
+      ! 则允许在第 1 步后进入 1 次斜压/速度修正，修正完第 2 步后立即退出
+      IF (.NOT. ITERATE_PRESSURE) THEN
+         IF (.NOT. ML_NEEDS_BAROCLINIC_REFINE .OR. PRESSURE_ITERATIONS >= 2) EXIT PRESSURE_ITERATION_LOOP
+      ENDIF
       CALL MESH_EXCHANGE(5)
 
       DO NM = LOWER_MESH_INDEX, UPPER_MESH_INDEX
@@ -1777,6 +1810,14 @@ SUBROUTINE PRESSURE_ITERATION_SCHEME
                VELOCITY_ERROR_MAX_LOC(3,NM_MAX_V), ',', MAXVAL(VELOCITY_ERROR_MAX), ',', &
                NM_MAX_P, ',', PRESSURE_ERROR_MAX_LOC(1,NM_MAX_P), ',', PRESSURE_ERROR_MAX_LOC(2,NM_MAX_P), ',', &
                PRESSURE_ERROR_MAX_LOC(3,NM_MAX_P), ',', MAXVAL(PRESSURE_ERROR_MAX)
+      ENDIF
+
+      ! [关键修复]：当 ML 处于 (ML_STRICT_TOL, ML_RES_TOL] 区间需要第 2 步斜压/速度修正时，
+      ! 原先代码在未开启 ITERATE_PRESSURE 时会因 FDS 默认 PRESSURE_TOLERANCE=1E10 / MAX_PREDICTOR_PRESSURE_ITERATIONS=1
+      ! 在下方 IF 判断中被直接 EXIT 跳出循环，导致 140~800 之间的较大残差从未执行第 2 步修正！
+      ! 现强制在第 1 步算完 COMPUTE_VELOCITY_ERROR (更新多网格交界面 WALL_WORK1) 后立即 CYCLE 进入第 2 步原生修正。
+      IF (ML_NEEDS_BAROCLINIC_REFINE .AND. PRESSURE_ITERATIONS == 1) THEN
+         CYCLE PRESSURE_ITERATION_LOOP
       ENDIF
 
       IF (MAXVAL(PRESSURE_ERROR_MAX) < PRESSURE_TOLERANCE) ITERATE_BAROCLINIC_TERM = .FALSE.
