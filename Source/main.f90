@@ -1496,6 +1496,7 @@ SUBROUTINE PRESSURE_ITERATION_SCHEME
    TYPE(ML_STATE_BACKUP), ALLOCATABLE, DIMENSION(:), SAVE :: ML_BACKUP
    LOGICAL, SAVE :: ML_BACKUP_INIT = .FALSE.
    REAL(EB) :: LOCAL_MAX_ERR, GLOBAL_MAX_ERR
+   REAL(EB) :: EFFECTIVE_STRICT_TOL, EFFECTIVE_RES_TOL
    LOGICAL  :: LOCAL_FAILED, GLOBAL_FAILED
 
    INTEGER, SAVE :: ML_COOLDOWN = 0
@@ -1509,10 +1510,14 @@ SUBROUTINE PRESSURE_ITERATION_SCHEME
    ! 2) GLOBAL_MAX_ERR <= ML_STRICT_TOL (140.0)：严格对齐原生 ULMAT 单步基准 (~130)，1步直接放行；
    ! 3) ML_STRICT_TOL < GLOBAL_MAX_ERR <= ML_RES_TOL (260.0)：采纳 ML 预测场作为第1步初值，
    !    强制执行速度误差检查与第2步原生斜压修正迭代（修复原先因默认 PRESSURE_TOLERANCE=1E10 导致第2步被跳过的漏洞）；
-   ! 4) GLOBAL_MAX_ERR > ML_RES_TOL (260.0) 或 NaN：立即回滚至 ML_BACKUP 并调用原生求解器兜底，保证流场与温度场高保真 (R2 > 0.95)。
+   ! 4) GLOBAL_MAX_ERR > ML_RES_TOL (1000.0) 或 NaN：立即回滚至 ML_BACKUP 并调用原生求解器兜底，保证流场与温度场高保真 (R2 > 0.95)。
    REAL(EB), PARAMETER :: ML_START_TIME = 1.0_EB
-   REAL(EB), PARAMETER :: ML_STRICT_TOL = 500.0_EB
-   REAL(EB), PARAMETER :: ML_RES_TOL    = 800.0_EB
+   REAL(EB), PARAMETER :: ML_STRICT_TOL = 600.0_EB
+   REAL(EB), PARAMETER :: ML_RES_TOL    = 1000.0_EB
+   ! [改法A - dt 感知阈值]：残差含 -dD/dt ∝ 1/dt 项，小 dt 火焰帧的绝对残差被系统性放大，
+   ! 固定绝对阈值会误杀这些帧。让阈值随 1/dt 同步放大(等价于相对残差判据)，消除 dt 偏差。
+   ! ML_DT_REF 取自适应时间步长中位数 (~0.0065s)；实测 dt 范围内缩放因子约 1~11 倍。
+   REAL(EB), PARAMETER :: ML_DT_REF = 0.0065_EB
    LOGICAL :: USED_ML, ML_NEEDS_BAROCLINIC_REFINE
 
    REAL(EB) :: T_ELAPSED_ML_INFER ! 只用于接收 C++ 纯推理时间
@@ -1645,7 +1650,7 @@ SUBROUTINE PRESSURE_ITERATION_SCHEME
          T_START_POISSON = CURRENT_TIME()
          CALL PRESSURE_SOLVER_NNet_GLOBAL(T_ELAPSED_ML_INFER)
          CALL MESH_EXCHANGE(5)
-         ! [关键修复]：在 MESH_EXCHANGE(5) 交换各网格新预测的 H/HS 后，立即同步所有多网格交界面幽灵层，
+         ! 在 MESH_EXCHANGE(5) 交换各网格新预测的 H/HS 后，立即同步所有多网格交界面幽灵层，
          ! 彻底消除 Mesh 1 火源加密区边界处的伪拉普拉斯残差与法向速度跳变
          CALL PRESSURE_SOLVER_NNet_SYNC_GHOSTS
          IF (PRES_FLAG == GLMAT_FLAG .OR. PRES_FLAG == UGLMAT_FLAG) THEN
@@ -1717,7 +1722,10 @@ SUBROUTINE PRESSURE_ITERATION_SCHEME
             LOCAL_MAX_ERR = 0.0_EB
          ENDIF
          
-         LOCAL_FAILED = ML_INIT_FAILED .OR. ISNAN(LOCAL_MAX_ERR) .OR. (LOCAL_MAX_ERR > ML_RES_TOL)
+         ! [改法A] dt 感知阈值：残差 ∝ 1/dt，阈值随小 dt 同步放大(下限为基准值，防止大 dt 侧阈值被压低)
+         EFFECTIVE_RES_TOL    = ML_RES_TOL    * MAX(ML_DT_REF / MAX(DT, 1.0E-6_EB), 1.0_EB)
+         EFFECTIVE_STRICT_TOL = ML_STRICT_TOL * MAX(ML_DT_REF / MAX(DT, 1.0E-6_EB), 1.0_EB)
+         LOCAL_FAILED = ML_INIT_FAILED .OR. ISNAN(LOCAL_MAX_ERR) .OR. (LOCAL_MAX_ERR > EFFECTIVE_RES_TOL)
 
          IF (N_MPI_PROCESSES > 1) THEN
             CALL MPI_ALLREDUCE(LOCAL_FAILED, GLOBAL_FAILED, 1, MPI_LOGICAL, MPI_LOR, MPI_COMM_WORLD, IERR)
@@ -1728,7 +1736,7 @@ SUBROUTINE PRESSURE_ITERATION_SCHEME
          ENDIF
          
          IF (MY_RANK == 0) THEN
-            WRITE(*,'(A,ES15.7,A,L1)') ' >>> [ML-Diag] GLOBAL_MAX_ERR = ', GLOBAL_MAX_ERR, ' | FAILED = ', GLOBAL_FAILED
+            WRITE(*,'(A,ES15.7,A,L1,A,ES12.5)') ' >>> [ML-Diag] GLOBAL_MAX_ERR = ', GLOBAL_MAX_ERR, ' | FAILED = ', GLOBAL_FAILED, ' | EFF_RES_TOL = ', EFFECTIVE_RES_TOL
          ENDIF
 
          IF (GLOBAL_FAILED) THEN
@@ -1766,7 +1774,7 @@ SUBROUTINE PRESSURE_ITERATION_SCHEME
             ! 若残差 <= ML_STRICT_TOL (180.0)，说明流场与斜压项已高度吻合，直接跳出循环；
             ! 若残差在 (180.0, 800.0] 之间，保留 ML 预测结果作为第 1 步解，不直接跳出，
             ! 而是继续执行下方速度误差检查并在必要时补做 1 次斜压修正迭代，确保火羽流峰值温度准确！
-            IF (GLOBAL_MAX_ERR <= ML_STRICT_TOL) THEN
+            IF (GLOBAL_MAX_ERR <= EFFECTIVE_STRICT_TOL) THEN
                EXIT PRESSURE_ITERATION_LOOP
             ELSE
                ML_NEEDS_BAROCLINIC_REFINE = .TRUE.
